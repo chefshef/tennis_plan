@@ -11,7 +11,10 @@ export async function GET() {
   return NextResponse.json({
     scheduled: !!state.scheduledTime,
     scheduledTime: state.scheduledTime,
+    targetReservationTime: state.targetReservationTime,
     lastRun: state.lastRun,
     logs: state.logs,
+    retryCount: state.retryCount,
+    maxRetries: state.maxRetries,
   })
 }
