@@ -1,42 +1,15 @@
 import { NextResponse } from 'next/server'
-import { Redis } from '@upstash/redis'
 
 export async function GET() {
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL || ''
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || ''
+  const redisUrl = process.env.REDIS_URL || ''
 
-  // List all env vars that start with UPSTASH or REDIS
-  const envVars = Object.keys(process.env)
-    .filter(key => key.includes('UPSTASH') || key.includes('REDIS') || key.includes('RAILWAY'))
-    .map(key => `${key}=${process.env[key]?.substring(0, 30)}...`)
+  // List ALL env var names to see what Railway is passing
+  const allEnvNames = Object.keys(process.env).sort()
 
-  // Also check REDIS_URL specifically
-  const railwayRedisUrl = process.env.REDIS_URL || ''
-
-  const result: Record<string, unknown> = {
-    railwayRedisUrlSet: !!railwayRedisUrl,
-    railwayRedisUrlPreview: railwayRedisUrl ? `${railwayRedisUrl.substring(0, 40)}...` : 'MISSING',
-    upstashRedisUrlSet: !!redisUrl,
-    upstashRedisUrlPreview: redisUrl ? `${redisUrl.substring(0, 40)}...` : 'MISSING',
-    redisTokenSet: !!redisToken,
-    relevantEnvVars: envVars,
-    allEnvCount: Object.keys(process.env).length,
-  }
-
-  if (redisUrl && redisToken) {
-    try {
-      const redis = new Redis({ url: redisUrl, token: redisToken })
-      await redis.set('test-key', 'test-value')
-      const value = await redis.get('test-key')
-      result.redisConnection = 'OK'
-      result.testValue = value
-    } catch (error) {
-      result.redisConnection = 'FAILED'
-      result.error = error instanceof Error ? error.message : String(error)
-    }
-  } else {
-    result.redisConnection = 'NOT_CONFIGURED'
-  }
-
-  return NextResponse.json(result)
+  return NextResponse.json({
+    redisUrlSet: !!redisUrl,
+    redisUrlPreview: redisUrl ? `${redisUrl.substring(0, 50)}...` : 'MISSING',
+    allEnvNames: allEnvNames,
+    allEnvCount: allEnvNames.length,
+  })
 }
