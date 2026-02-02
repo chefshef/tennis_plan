@@ -72,7 +72,14 @@ async function performLogin(page) {
   log('Login successful');
 }
 
-async function selectTimeSlot(page, targetTime) {
+async function selectTimeSlot(page, targetDate, targetTime) {
+  // Format the target date as YYYY-MM-DD for matching the section ID
+  const year = targetDate.getFullYear();
+  const month = (targetDate.getMonth() + 1).toString().padStart(2, '0');
+  const day = targetDate.getDate().toString().padStart(2, '0');
+  const targetDateStr = `${year}-${month}-${day}`;
+
+  // Format target time for display matching (e.g., "6:30 pm")
   const targetHour = targetTime.getHours();
   const targetMinute = targetTime.getMinutes();
   const isPM = targetHour >= 12;
@@ -80,26 +87,46 @@ async function selectTimeSlot(page, targetTime) {
   const displayMinute = targetMinute.toString().padStart(2, '0');
   const targetTimeStr = `${displayHour}:${displayMinute} ${isPM ? 'pm' : 'am'}`;
 
-  log(`Looking for time slot: ${targetTimeStr}`);
+  log(`Looking for date: ${targetDateStr}, time: ${targetTimeStr}`);
 
-  await page.waitForSelector('table, .start-time-block', { timeout: CONFIG.actionTimeout });
+  await page.waitForSelector('.date-section', { timeout: CONFIG.actionTimeout });
   await page.waitForTimeout(1000);
 
-  const timeRows = await page.locator('tr').all();
+  // Find the date section with matching ID (e.g., id="2026-02-09")
+  const dateSection = page.locator(`.date-section:has(.header-date#${targetDateStr})`);
+  const dateSectionCount = await dateSection.count();
+
+  if (dateSectionCount === 0) {
+    log(`Date section not found for ${targetDateStr}`, 'error');
+
+    // Log available dates for debugging
+    const availableDates = await page.locator('.header-date').allTextContents();
+    log(`Available dates on page: ${availableDates.join(', ')}`);
+
+    return {
+      success: false,
+      message: `Date ${targetDateStr} not available - may not be within booking window yet`
+    };
+  }
+
+  log(`Found date section for ${targetDateStr}`);
+
+  // Within the date section, find the time row
+  const timeRows = await dateSection.locator('tr.start-time-schedule-row').all();
 
   for (const row of timeRows) {
-    const rowText = await row.textContent() || '';
+    const timeCell = await row.locator('.time-column').textContent() || '';
 
-    if (rowText.toLowerCase().includes(targetTimeStr.toLowerCase())) {
+    if (timeCell.toLowerCase().trim() === targetTimeStr.toLowerCase()) {
       log(`Found time row: ${targetTimeStr}`);
 
-      const openSlots = await row.locator('td.start-time-block.open button, td.open button').all();
+      const openSlots = await row.locator('td.start-time-block.open button').all();
 
       if (openSlots.length === 0) {
-        log(`No open slots for ${targetTimeStr}`, 'error');
+        log(`No open slots for ${targetTimeStr} on ${targetDateStr}`, 'error');
         return {
           success: false,
-          message: `No courts available at ${targetTimeStr} - both booked`
+          message: `No courts available at ${targetTimeStr} on ${targetDateStr} - both booked`
         };
       }
 
@@ -107,51 +134,30 @@ async function selectTimeSlot(page, targetTime) {
       const slotToClick = openSlots[openSlots.length - 1];
       const courtName = openSlots.length >= 2 ? 'Tennis Court 2' : 'Tennis Court 1';
 
-      log(`Selecting ${courtName}...`);
+      log(`Selecting ${courtName} for ${targetDateStr} at ${targetTimeStr}...`);
       await slotToClick.click();
       await page.waitForLoadState('networkidle');
 
       return {
         success: true,
-        message: `Selected ${courtName} at ${targetTimeStr}`,
+        message: `Selected ${courtName} at ${targetTimeStr} on ${targetDateStr}`,
         courtBooked: courtName,
-        timeBooked: targetTimeStr
+        timeBooked: targetTimeStr,
+        dateBooked: targetDateStr
       };
     }
   }
 
-  // Alternative approach
-  log('Trying alternative slot selection method...');
+  // Time not found in date section
+  log(`Time ${targetTimeStr} not found in date section ${targetDateStr}`, 'error');
 
-  const allOpenSlots = await page.locator('.start-time-block.open').all();
-
-  for (const slot of allOpenSlots) {
-    const row = slot.locator('xpath=ancestor::tr');
-    const rowText = await row.textContent() || '';
-
-    if (rowText.toLowerCase().includes(targetTimeStr.toLowerCase())) {
-      const rowOpenSlots = await row.locator('.start-time-block.open').all();
-      const slotToClick = rowOpenSlots[rowOpenSlots.length - 1];
-      const button = slotToClick.locator('button');
-
-      const courtName = rowOpenSlots.length >= 2 ? 'Tennis Court 2' : 'Tennis Court 1';
-      log(`Selecting ${courtName}...`);
-
-      await button.click();
-      await page.waitForLoadState('networkidle');
-
-      return {
-        success: true,
-        message: `Selected ${courtName} at ${targetTimeStr}`,
-        courtBooked: courtName,
-        timeBooked: targetTimeStr
-      };
-    }
-  }
+  // Log available times for debugging
+  const availableTimes = await dateSection.locator('.time-column').allTextContents();
+  log(`Available times for ${targetDateStr}: ${availableTimes.join(', ')}`);
 
   return {
     success: false,
-    message: `Could not find time slot for ${targetTimeStr}`
+    message: `Time slot ${targetTimeStr} not found for ${targetDateStr}`
   };
 }
 
@@ -188,12 +194,13 @@ async function runBooking() {
     throw new Error('Missing TARGET_DATE or TARGET_TIME environment variables');
   }
 
-  // Parse target datetime
+  // Parse target date and time
   const [year, month, day] = CONFIG.targetDate.split('-').map(Number);
   const [hour, minute] = CONFIG.targetTime.split(':').map(Number);
+  const targetDate = new Date(year, month - 1, day);
   const targetTime = new Date(year, month - 1, day, hour, minute);
 
-  log(`Target reservation: ${targetTime.toLocaleString()}`);
+  log(`Target reservation: ${CONFIG.targetDate} at ${CONFIG.targetTime}`);
 
   let browser = null;
 
@@ -244,9 +251,9 @@ async function runBooking() {
     await acceptButton.click();
     await page.waitForLoadState('networkidle');
 
-    // Step 5: Select time slot
-    log('Selecting time slot...');
-    const slotResult = await selectTimeSlot(page, targetTime);
+    // Step 5: Select date and time slot
+    log('Selecting date and time slot...');
+    const slotResult = await selectTimeSlot(page, targetDate, targetTime);
 
     if (!slotResult.success) {
       await browser.close();
