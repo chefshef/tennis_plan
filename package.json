@@ -1,26 +1,21 @@
 {
   "name": "tennis-plan",
-  "version": "1.0.3",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "test:browser": "npx tsx test-script.ts"
+    "lint": "next lint"
   },
   "dependencies": {
-    "@upstash/redis": "^1.36.1",
-    "ioredis": "^5.9.2",
     "next": "^14.1.0",
-    "node-cron": "^3.0.3",
     "playwright": "^1.41.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/node-cron": "^3.0.11",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "typescript": "^5.3.0"

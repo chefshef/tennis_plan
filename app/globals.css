@@ -250,3 +250,34 @@ button:disabled {
 .log-entry.error .log-message {
   color: #f87171;
 }
+
+.message {
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.message.success {
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  color: #4ade80;
+}
+
+.message.error {
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #f87171;
+}
+
+.how-it-works {
+  padding-left: 20px;
+  margin-bottom: 12px;
+}
+
+.how-it-works li {
+  margin-bottom: 8px;
+  font-size: 14px;
+  opacity: 0.8;
+}

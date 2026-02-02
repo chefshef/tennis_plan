@@ -2,35 +2,11 @@
 
 import { useState, useEffect } from 'react'
 
-interface ScheduleStatus {
-  scheduled: boolean
-  scheduledTime: string | null  // When script will RUN
-  targetReservationTime: string | null  // When user wants to PLAY
-  lastRun: {
-    time: string
-    success: boolean
-    message: string
-  } | null
-  logs: Array<{
-    time: string
-    message: string
-    type: 'info' | 'success' | 'error'
-  }>
-  retryCount: number
-  maxRetries: number
-}
-
 export default function Home() {
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
-  const [status, setStatus] = useState<ScheduleStatus | null>(null)
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    fetchStatus()
-    const interval = setInterval(fetchStatus, 5000)
-    return () => clearInterval(interval)
-  }, [])
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Set default date to 7 days from now
   useEffect(() => {
@@ -39,88 +15,43 @@ export default function Home() {
     setDate(defaultDate.toISOString().split('T')[0])
   }, [])
 
-  async function fetchStatus() {
-    try {
-      const res = await fetch('/api/status')
-      const data = await res.json()
-      setStatus(data)
-    } catch (e) {
-      console.error('Failed to fetch status', e)
-    }
-  }
-
-  async function handleSchedule(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!date || !time) return
 
     setLoading(true)
+    setMessage(null)
+
     try {
-      const res = await fetch('/api/schedule', {
+      const res = await fetch('/api/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, time }),
+        body: JSON.stringify({ targetDate: date, targetTime: time }),
       })
       const data = await res.json()
+
       if (data.success) {
-        setDate('')
-        setTime('')
-        await fetchStatus()
+        setMessage({ type: 'success', text: `Booking triggered for ${date} at ${formatTime(time)}. Check your notifications!` })
       } else {
-        alert(data.error || 'Failed to schedule')
+        setMessage({ type: 'error', text: data.error || 'Failed to trigger booking' })
       }
     } catch (e) {
-      alert('Failed to schedule')
+      setMessage({ type: 'error', text: 'Failed to connect to server' })
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleCancel() {
-    setLoading(true)
-    try {
-      await fetch('/api/schedule', { method: 'DELETE' })
-      await fetchStatus()
-    } catch (e) {
-      alert('Failed to cancel')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleRunNow() {
-    if (!status?.targetReservationTime) {
-      alert('Schedule a reservation first')
-      return
-    }
-    if (!confirm('Run the booking script now?')) return
-    setLoading(true)
-    try {
-      const res = await fetch('/api/run', { method: 'POST' })
-      const data = await res.json()
-      await fetchStatus()
-      if (!data.success) {
-        alert(data.error || 'Run failed')
-      }
-    } catch (e) {
-      alert('Failed to run')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  function formatDateTime(isoString: string) {
-    const d = new Date(isoString)
-    return {
-      time: d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-      date: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-      full: d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
-    }
+  function formatTime(time24: string) {
+    const [hours, minutes] = time24.split(':').map(Number)
+    const isPM = hours >= 12
+    const displayHour = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours)
+    return `${displayHour}:${minutes.toString().padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`
   }
 
   function getMinDate() {
-    // Allow any future date - script will run immediately if less than 7 days away
     const min = new Date()
-    min.setDate(min.getDate() + 1) // Tomorrow at minimum
+    min.setDate(min.getDate() + 1)
     return min.toISOString().split('T')[0]
   }
 
@@ -128,42 +59,19 @@ export default function Home() {
     <div className="container">
       <h1>Tennis Court Booker</h1>
 
-      {status?.scheduled && status.targetReservationTime ? (
-        <div className="status scheduled">
-          <div className="label">Reservation Scheduled</div>
-          <div className="reservation-info">
-            <div className="main-time">
-              <div className="time">{formatDateTime(status.targetReservationTime).time}</div>
-              <div className="date">{formatDateTime(status.targetReservationTime).date}</div>
-            </div>
-            <div className="run-time">
-              Script runs: {formatDateTime(status.scheduledTime!).full}
-            </div>
-            {status.retryCount > 0 && (
-              <div className="retry-info">
-                Retry {status.retryCount}/{status.maxRetries} in progress...
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="status idle">
-          <div className="label">No reservation scheduled</div>
-        </div>
-      )}
-
-      {status?.lastRun && (
-        <div className={`last-run ${status.lastRun.success ? 'success' : 'error'}`}>
-          <div className="label">Last Run</div>
-          <div className="message">{status.lastRun.message}</div>
-          <div className="timestamp">{formatDateTime(status.lastRun.time).full}</div>
-        </div>
-      )}
-
       <div className="card">
-        <h2>Book Tennis Court</h2>
-        <p className="hint">Select when you want to play. The script runs 7 days before to grab the slot when reservations open. If less than 7 days away, it runs immediately.</p>
-        <form onSubmit={handleSchedule}>
+        <h2>Book a Court</h2>
+        <p className="hint">
+          Select when you want to play. The booking script will run immediately via GitHub Actions.
+        </p>
+
+        {message && (
+          <div className={`message ${message.type}`}>
+            {message.text}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
           <div className="input-group">
             <label>Date</label>
             <input
@@ -215,37 +123,23 @@ export default function Home() {
             </select>
           </div>
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Scheduling...' : 'Schedule Booking'}
+            {loading ? 'Triggering...' : 'Book Now'}
           </button>
         </form>
-
-        {status?.scheduled && (
-          <>
-            <button onClick={handleCancel} className="btn-danger" disabled={loading}>
-              Cancel Scheduled Booking
-            </button>
-            <button onClick={handleRunNow} className="btn-secondary" disabled={loading}>
-              Run Now (Test)
-            </button>
-          </>
-        )}
       </div>
 
-      {status?.logs && status.logs.length > 0 && (
-        <div className="card">
-          <h2>Activity Log</h2>
-          <div className="log">
-            {status.logs.slice().reverse().slice(0, 20).map((log, i) => (
-              <div key={i} className={`log-entry ${log.type}`}>
-                <div className="log-message">{log.message}</div>
-                <div className="timestamp">
-                  {new Date(log.time).toLocaleTimeString()}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="card">
+        <h2>How it works</h2>
+        <ol className="how-it-works">
+          <li>Select your desired date and time</li>
+          <li>Click "Book Now" to trigger the booking script</li>
+          <li>GitHub Actions runs Playwright to book the court</li>
+          <li>You'll get a push notification with the result</li>
+        </ol>
+        <p className="hint">
+          Prefers Court 2 if both are open. Books 60-min slot with 1 guest.
+        </p>
+      </div>
     </div>
   )
 }

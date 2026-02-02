@@ -1,0 +1,53 @@
+name: Book Tennis Court
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Target date (YYYY-MM-DD)'
+        required: true
+        type: string
+      target_time:
+        description: 'Target time (HH:MM in 24hr format)'
+        required: true
+        type: string
+  repository_dispatch:
+    types: [book-court]
+
+jobs:
+  book:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Run booking script
+        env:
+          TFC_USERNAME: ${{ secrets.TFC_USERNAME }}
+          TFC_PASSWORD: ${{ secrets.TFC_PASSWORD }}
+          TARGET_DATE: ${{ github.event.inputs.target_date || github.event.client_payload.target_date }}
+          TARGET_TIME: ${{ github.event.inputs.target_time || github.event.client_payload.target_time }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: node scripts/book-court.js
+
+      - name: Send success notification
+        if: success()
+        run: |
+          curl -d "Tennis court booked for ${{ env.TARGET_DATE }} at ${{ env.TARGET_TIME }}!" \
+            ntfy.sh/${{ secrets.NTFY_TOPIC }}
+
+      - name: Send failure notification
+        if: failure()
+        run: |
+          curl -d "Failed to book tennis court for ${{ env.TARGET_DATE }} at ${{ env.TARGET_TIME }}" \
+            ntfy.sh/${{ secrets.NTFY_TOPIC }}
