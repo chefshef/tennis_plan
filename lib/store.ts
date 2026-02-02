@@ -2,9 +2,15 @@ import { Redis } from '@upstash/redis'
 
 // Initialize Upstash Redis client
 // Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Railway env vars
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL || ''
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || ''
+
+console.log('[STORE] Redis URL configured:', redisUrl ? `${redisUrl.substring(0, 30)}...` : 'MISSING')
+console.log('[STORE] Redis Token configured:', redisToken ? 'SET' : 'MISSING')
+
 const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL || '',
-  token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
+  url: redisUrl,
+  token: redisToken,
 })
 
 const STORE_KEY = 'tennis-scheduler-state'
