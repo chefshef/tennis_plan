@@ -5,10 +5,17 @@ export async function GET() {
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL || ''
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || ''
 
+  // List all env vars that start with UPSTASH or REDIS
+  const envVars = Object.keys(process.env)
+    .filter(key => key.includes('UPSTASH') || key.includes('REDIS') || key.includes('RAILWAY'))
+    .map(key => `${key}=${process.env[key]?.substring(0, 20)}...`)
+
   const result: Record<string, unknown> = {
     redisUrlSet: !!redisUrl,
     redisUrlPreview: redisUrl ? `${redisUrl.substring(0, 40)}...` : 'MISSING',
     redisTokenSet: !!redisToken,
+    relevantEnvVars: envVars,
+    allEnvCount: Object.keys(process.env).length,
   }
 
   if (redisUrl && redisToken) {
