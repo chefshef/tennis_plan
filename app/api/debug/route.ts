@@ -8,11 +8,16 @@ export async function GET() {
   // List all env vars that start with UPSTASH or REDIS
   const envVars = Object.keys(process.env)
     .filter(key => key.includes('UPSTASH') || key.includes('REDIS') || key.includes('RAILWAY'))
-    .map(key => `${key}=${process.env[key]?.substring(0, 20)}...`)
+    .map(key => `${key}=${process.env[key]?.substring(0, 30)}...`)
+
+  // Also check REDIS_URL specifically
+  const railwayRedisUrl = process.env.REDIS_URL || ''
 
   const result: Record<string, unknown> = {
-    redisUrlSet: !!redisUrl,
-    redisUrlPreview: redisUrl ? `${redisUrl.substring(0, 40)}...` : 'MISSING',
+    railwayRedisUrlSet: !!railwayRedisUrl,
+    railwayRedisUrlPreview: railwayRedisUrl ? `${railwayRedisUrl.substring(0, 40)}...` : 'MISSING',
+    upstashRedisUrlSet: !!redisUrl,
+    upstashRedisUrlPreview: redisUrl ? `${redisUrl.substring(0, 40)}...` : 'MISSING',
     redisTokenSet: !!redisToken,
     relevantEnvVars: envVars,
     allEnvCount: Object.keys(process.env).length,

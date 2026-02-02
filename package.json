@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@upstash/redis": "^1.36.1",
+    "ioredis": "^5.9.2",
     "next": "^14.1.0",
     "node-cron": "^3.0.3",
     "playwright": "^1.41.0",

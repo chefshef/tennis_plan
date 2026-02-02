@@ -1,17 +1,15 @@
-import { Redis } from '@upstash/redis'
+import Redis from 'ioredis'
 
-// Initialize Upstash Redis client
-// Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Railway env vars
-const redisUrl = process.env.UPSTASH_REDIS_REST_URL || ''
-const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || ''
+// Railway auto-injects REDIS_URL when you add a Redis database
+// Fallback to Upstash if REDIS_URL isn't available
+const redisUrl = process.env.REDIS_URL || process.env.UPSTASH_REDIS_REST_URL || ''
 
 console.log('[STORE] Redis URL configured:', redisUrl ? `${redisUrl.substring(0, 30)}...` : 'MISSING')
-console.log('[STORE] Redis Token configured:', redisToken ? 'SET' : 'MISSING')
 
-const redis = new Redis({
-  url: redisUrl,
-  token: redisToken,
-})
+let redis: Redis | null = null
+if (redisUrl) {
+  redis = new Redis(redisUrl)
+}
 
 const STORE_KEY = 'tennis-scheduler-state'
 
@@ -46,11 +44,16 @@ const DEFAULT_STATE: AppState = {
 }
 
 async function loadState(): Promise<AppState> {
+  if (!redis) {
+    console.log('[STORE] No Redis connection, using default state')
+    return { ...DEFAULT_STATE }
+  }
+
   try {
-    const data = await redis.get<AppState>(STORE_KEY)
+    const data = await redis.get(STORE_KEY)
     if (data) {
       console.log('[STORE] Loaded state from Redis')
-      return { ...DEFAULT_STATE, ...data }
+      return { ...DEFAULT_STATE, ...JSON.parse(data) }
     }
   } catch (error) {
     console.error('[STORE] Error loading state from Redis:', error)
@@ -59,8 +62,13 @@ async function loadState(): Promise<AppState> {
 }
 
 async function saveState(state: AppState): Promise<void> {
+  if (!redis) {
+    console.log('[STORE] No Redis connection, cannot save')
+    return
+  }
+
   try {
-    await redis.set(STORE_KEY, state)
+    await redis.set(STORE_KEY, JSON.stringify(state))
     console.log('[STORE] Saved state to Redis')
   } catch (error) {
     console.error('[STORE] Error saving state to Redis:', error)
@@ -69,24 +77,8 @@ async function saveState(state: AppState): Promise<void> {
 
 // Synchronous wrapper for compatibility - uses cached state
 let cachedState: AppState = { ...DEFAULT_STATE }
-let stateLoaded = false
 
 class Store {
-  async init(): Promise<void> {
-    if (!stateLoaded) {
-      cachedState = await loadState()
-      stateLoaded = true
-      if (cachedState.logs.length === 0) {
-        cachedState.logs.push({
-          time: new Date().toISOString(),
-          message: 'Scheduler initialized',
-          type: 'info',
-        })
-        await saveState(cachedState)
-      }
-    }
-  }
-
   getState(): AppState {
     return { ...cachedState }
   }
