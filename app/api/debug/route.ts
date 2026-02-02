@@ -1,15 +1,31 @@
 import { NextResponse } from 'next/server'
+import { Redis } from '@upstash/redis'
 
 export async function GET() {
-  const redisUrl = process.env.REDIS_URL || ''
+  const UPSTASH_URL = 'https://helpful-penguin-61658.upstash.io'
+  const UPSTASH_TOKEN = 'AfDaAAIncDFkNDhlMTQyMWZjNzA0ZWQ1YmIzOTIzZDI0ODI5ZjRlZXAxNjE2NTg'
 
-  // List ALL env var names to see what Railway is passing
-  const allEnvNames = Object.keys(process.env).sort()
+  try {
+    const redis = new Redis({
+      url: UPSTASH_URL,
+      token: UPSTASH_TOKEN,
+    })
 
-  return NextResponse.json({
-    redisUrlSet: !!redisUrl,
-    redisUrlPreview: redisUrl ? `${redisUrl.substring(0, 50)}...` : 'MISSING',
-    allEnvNames: allEnvNames,
-    allEnvCount: allEnvNames.length,
-  })
+    // Test write
+    await redis.set('test-key', 'hello-' + Date.now())
+
+    // Test read
+    const value = await redis.get('test-key')
+
+    return NextResponse.json({
+      status: 'OK',
+      testValue: value,
+      message: 'Redis connection working!'
+    })
+  } catch (error) {
+    return NextResponse.json({
+      status: 'ERROR',
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
