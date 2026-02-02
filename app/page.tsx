@@ -118,8 +118,9 @@ export default function Home() {
   }
 
   function getMinDate() {
+    // Allow any future date - script will run immediately if less than 7 days away
     const min = new Date()
-    min.setDate(min.getDate() + 7)
+    min.setDate(min.getDate() + 1) // Tomorrow at minimum
     return min.toISOString().split('T')[0]
   }
 
@@ -161,10 +162,10 @@ export default function Home() {
 
       <div className="card">
         <h2>Book Tennis Court</h2>
-        <p className="hint">Select when you want to play. The script will automatically run 7 days before to grab the slot when reservations open.</p>
+        <p className="hint">Select when you want to play. The script runs 7 days before to grab the slot when reservations open. If less than 7 days away, it runs immediately.</p>
         <form onSubmit={handleSchedule}>
           <div className="input-group">
-            <label>Date (7+ days from now)</label>
+            <label>Date</label>
             <input
               type="date"
               value={date}
@@ -181,6 +182,27 @@ export default function Home() {
               required
             >
               <option value="">Select time...</option>
+              <option value="07:00">7:00 AM</option>
+              <option value="07:30">7:30 AM</option>
+              <option value="08:00">8:00 AM</option>
+              <option value="08:30">8:30 AM</option>
+              <option value="09:00">9:00 AM</option>
+              <option value="09:30">9:30 AM</option>
+              <option value="10:00">10:00 AM</option>
+              <option value="10:30">10:30 AM</option>
+              <option value="11:00">11:00 AM</option>
+              <option value="11:30">11:30 AM</option>
+              <option value="12:00">12:00 PM</option>
+              <option value="12:30">12:30 PM</option>
+              <option value="13:00">1:00 PM</option>
+              <option value="13:30">1:30 PM</option>
+              <option value="14:00">2:00 PM</option>
+              <option value="14:30">2:30 PM</option>
+              <option value="15:00">3:00 PM</option>
+              <option value="15:30">3:30 PM</option>
+              <option value="16:00">4:00 PM</option>
+              <option value="16:30">4:30 PM</option>
+              <option value="17:00">5:00 PM</option>
               <option value="17:30">5:30 PM</option>
               <option value="18:00">6:00 PM</option>
               <option value="18:30">6:30 PM</option>

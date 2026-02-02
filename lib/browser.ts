@@ -1,5 +1,6 @@
 import { chromium, Browser, Page } from 'playwright'
 import { store } from './store'
+import { notifySuccess, notifyFailure, notifyRetry } from './notify'
 
 // Configuration
 const CONFIG = {
@@ -310,6 +311,8 @@ export async function runAutomationWithRetry(): Promise<AutomationResult> {
   const result = await runAutomation()
 
   if (result.success) {
+    // Send success notification
+    await notifySuccess(result.courtBooked || 'Tennis Court', result.timeBooked || 'scheduled time')
     return result
   }
 
@@ -319,16 +322,21 @@ export async function runAutomationWithRetry(): Promise<AutomationResult> {
   if (isBothCourtsTaken) {
     // Both courts taken, no point retrying
     store.addLog('Both courts are booked - stopping retries', 'info')
+    await notifyFailure(`Both courts are booked at your requested time`)
     return result
   }
 
   // Other failure - might be timing, network, etc. - worth retrying
   if (store.shouldRetry()) {
     const retryNum = store.incrementRetry()
-    store.addLog(`Will retry in 1 minute (attempt ${retryNum}/${store.getState().maxRetries})`, 'info')
+    const maxRetries = store.getState().maxRetries
+    store.addLog(`Will retry in 1 minute (attempt ${retryNum}/${maxRetries})`, 'info')
     store.setLastRun(false, result.message, false) // Don't clear schedule
+    await notifyRetry(retryNum, maxRetries, result.message)
     return { ...result, message: `${result.message} - will retry` }
   }
 
+  // Final failure after all retries
+  await notifyFailure(`Booking failed after all retries: ${result.message}`)
   return result
 }

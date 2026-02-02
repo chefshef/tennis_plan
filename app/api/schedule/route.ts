@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { store } from '@/lib/store'
 import { initScheduler } from '@/lib/scheduler'
+import { notifyScheduled } from '@/lib/notify'
 
 // Initialize scheduler on first API call
 initScheduler()
@@ -16,16 +17,13 @@ export async function POST(request: NextRequest) {
 
     // This is the desired RESERVATION time (when user wants to play)
     const reservationTime = new Date(`${date}T${time}`)
-
-    // Validate reservation time is at least 7 days in the future
     const now = new Date()
-    const minDate = new Date(now)
-    minDate.setDate(minDate.getDate() + 7)
 
-    if (reservationTime < minDate) {
+    // Validate reservation time is in the future
+    if (reservationTime <= now) {
       return NextResponse.json({
         success: false,
-        error: 'Reservation must be at least 7 days in the future (reservations open 7 days ahead)'
+        error: 'Reservation time must be in the future'
       }, { status: 400 })
     }
 
@@ -33,12 +31,16 @@ export async function POST(request: NextRequest) {
     const runTime = new Date(reservationTime)
     runTime.setDate(runTime.getDate() - 7)
 
-    // If run time has already passed today, run immediately
+    // If run time has already passed, run in 1 minute
+    // This handles cases where reservation is less than 7 days away
     if (runTime <= now) {
       runTime.setTime(now.getTime() + 60000) // Run in 1 minute
     }
 
     store.setSchedule(runTime.toISOString(), reservationTime.toISOString())
+
+    // Send notification
+    await notifyScheduled(reservationTime, runTime)
 
     return NextResponse.json({
       success: true,
