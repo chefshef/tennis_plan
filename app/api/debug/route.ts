@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { Redis } from '@upstash/redis'
 
 export async function GET() {
+  const VERSION = 'v3-upstash-direct'
   const UPSTASH_URL = 'https://helpful-penguin-61658.upstash.io'
   const UPSTASH_TOKEN = 'AfDaAAIncDFkNDhlMTQyMWZjNzA0ZWQ1YmIzOTIzZDI0ODI5ZjRlZXAxNjE2NTg'
 
@@ -18,12 +19,14 @@ export async function GET() {
     const value = await redis.get('test-key')
 
     return NextResponse.json({
+      version: VERSION,
       status: 'OK',
       testValue: value,
       message: 'Redis connection working!'
     })
   } catch (error) {
     return NextResponse.json({
+      version: VERSION,
       status: 'ERROR',
       error: error instanceof Error ? error.message : String(error),
     })
