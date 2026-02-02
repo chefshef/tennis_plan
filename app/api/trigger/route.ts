@@ -28,9 +28,9 @@ export async function POST(request: NextRequest) {
     const daysUntil = Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
 
     if (daysUntil <= 7) {
-      // Within booking window - run immediately
+      // Within booking window - run immediately using workflow_dispatch (better runner priority)
       const response = await fetch(
-        `https://api.github.com/repos/${githubRepo}/dispatches`,
+        `https://api.github.com/repos/${githubRepo}/actions/workflows/book-court.yml/dispatches`,
         {
           method: 'POST',
           headers: {
@@ -39,8 +39,8 @@ export async function POST(request: NextRequest) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            event_type: 'book-court',
-            client_payload: {
+            ref: 'main',
+            inputs: {
               target_date: targetDate,
               target_time: targetTime,
             },

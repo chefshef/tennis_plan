@@ -77,8 +77,9 @@ jobs:
               RUN_AT=$(date -d "@$BOOKING_WINDOW_TS" -Iseconds 2>/dev/null || \
                 date -r "$BOOKING_WINDOW_TS" +"%Y-%m-%dT%H:%M:%S")
 
-              # Trigger the booking workflow with run_at parameter
+              # Trigger the booking workflow with run_at parameter (using workflow_dispatch for better runner priority)
               gh workflow run book-court.yml \
+                --ref main \
                 -f target_date="$TARGET_DATE" \
                 -f target_time="$TARGET_TIME" \
                 -f run_at="$RUN_AT"
@@ -90,6 +91,7 @@ jobs:
             elif [ "$NOW" -ge "$BOOKING_WINDOW_TS" ]; then
               echo "Issue #$NUMBER: ⚠️ Missed trigger window! Triggering immediately as fallback."
               gh workflow run book-court.yml \
+                --ref main \
                 -f target_date="$TARGET_DATE" \
                 -f target_time="$TARGET_TIME"
               gh issue edit "$NUMBER" --add-label "triggered" --add-label "late"
