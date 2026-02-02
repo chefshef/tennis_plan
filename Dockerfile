@@ -1,4 +1,5 @@
 # Use Node with Playwright pre-installed
+# Build version: v3-upstash-direct-2024-02-02
 FROM mcr.microsoft.com/playwright:v1.41.0-jammy
 
 WORKDIR /app
