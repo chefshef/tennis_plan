@@ -11,10 +11,6 @@ on:
         description: 'Target time (HH:MM in 24hr format)'
         required: true
         type: string
-      run_at:
-        description: 'When to execute (ISO timestamp, optional - runs immediately if not set)'
-        required: false
-        type: string
   repository_dispatch:
     types: [book-court]
 
@@ -34,31 +30,6 @@ jobs:
 
       - name: Install Playwright browsers
         run: npx playwright install chromium
-
-      - name: Wait until exact booking time
-        run: |
-          # Get run_at from inputs (workflow_dispatch) or client_payload (repository_dispatch)
-          RUN_AT="${{ github.event.inputs.run_at || github.event.client_payload.run_at }}"
-
-          if [ -n "$RUN_AT" ]; then
-            echo "Scheduled to run at: $RUN_AT"
-
-            # Convert to Unix timestamp
-            TARGET_TS=$(date -d "$RUN_AT" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "$RUN_AT" +%s 2>/dev/null)
-            NOW_TS=$(date +%s)
-
-            WAIT_SECONDS=$((TARGET_TS - NOW_TS))
-
-            if [ "$WAIT_SECONDS" -gt 0 ]; then
-              echo "Waiting $WAIT_SECONDS seconds until $(date -d @$TARGET_TS 2>/dev/null || date -r $TARGET_TS)..."
-              sleep $WAIT_SECONDS
-              echo "Wait complete. Starting booking NOW at $(date)"
-            else
-              echo "Target time already passed, running immediately"
-            fi
-          else
-            echo "No run_at specified, running immediately"
-          fi
 
       - name: Run booking script
         env:

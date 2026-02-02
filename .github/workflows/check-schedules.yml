@@ -57,36 +57,31 @@ jobs:
             BOOKING_WINDOW_TS=$(date -d "$TARGET_DATETIME - 7 days" +%s 2>/dev/null || \
               date -j -v-7d -f "%Y-%m-%dT%H:%M:%S" "$TARGET_DATETIME" +%s 2>/dev/null)
 
-            # Trigger the job 1 HOUR before the booking window opens
-            ONE_HOUR=3600
-            TRIGGER_TS=$((BOOKING_WINDOW_TS - ONE_HOUR))
+            # Trigger when booking window is within 5 minutes (cron runs every 5 min)
+            FIVE_MINS=300
+            TRIGGER_TS=$((BOOKING_WINDOW_TS - FIVE_MINS))
 
             # Format times for logging
             TRIGGER_DATE=$(date -d "@$TRIGGER_TS" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$TRIGGER_TS" "+%Y-%m-%d %H:%M")
             BOOKING_DATE=$(date -d "@$BOOKING_WINDOW_TS" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$BOOKING_WINDOW_TS" "+%Y-%m-%d %H:%M")
 
-            echo "  - Trigger time (1hr early): $TRIGGER_DATE"
+            echo "  - Trigger time (5min early): $TRIGGER_DATE"
             echo "  - Booking window opens: $BOOKING_DATE"
             echo "  - Now: $(date '+%Y-%m-%d %H:%M')"
 
             # Check if we're in the trigger window (trigger time has passed, but booking time hasn't)
             if [ "$NOW" -ge "$TRIGGER_TS" ] && [ "$NOW" -lt "$BOOKING_WINDOW_TS" ]; then
-              echo "Issue #$NUMBER: ✅ Triggering warm-up job now! Will execute at booking window."
+              echo "Issue #$NUMBER: ✅ Booking window opens soon! Triggering job now."
 
-              # Format the exact execution time
-              RUN_AT=$(date -d "@$BOOKING_WINDOW_TS" -Iseconds 2>/dev/null || \
-                date -r "$BOOKING_WINDOW_TS" +"%Y-%m-%dT%H:%M:%S")
-
-              # Trigger the booking workflow with run_at parameter (using workflow_dispatch for better runner priority)
+              # Trigger the booking workflow (using workflow_dispatch for better runner priority)
               gh workflow run book-court.yml \
                 --ref main \
                 -f target_date="$TARGET_DATE" \
-                -f target_time="$TARGET_TIME" \
-                -f run_at="$RUN_AT"
+                -f target_time="$TARGET_TIME"
 
               # Mark as triggered
               gh issue edit "$NUMBER" --add-label "triggered"
-              gh issue comment "$NUMBER" --body "🚀 Booking job triggered at $(date). Will execute at $RUN_AT when reservation window opens."
+              gh issue comment "$NUMBER" --body "🚀 Booking job triggered at $(date). Running now - will retry if slot not available yet."
 
             elif [ "$NOW" -ge "$BOOKING_WINDOW_TS" ]; then
               echo "Issue #$NUMBER: ⚠️ Missed trigger window! Triggering immediately as fallback."
