@@ -93,7 +93,8 @@ async function selectTimeSlot(page, targetDate, targetTime) {
   await page.waitForTimeout(1000);
 
   // Find the date section with matching ID (e.g., id="2026-02-09")
-  const dateSection = page.locator(`.date-section:has(.header-date#${targetDateStr})`);
+  // Use attribute selector since IDs starting with numbers aren't valid CSS selectors
+  const dateSection = page.locator(`.date-section:has(.header-date[id="${targetDateStr}"])`);
   const dateSectionCount = await dateSection.count();
 
   if (dateSectionCount === 0) {
