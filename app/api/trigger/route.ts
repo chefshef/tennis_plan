@@ -22,13 +22,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculate days until target date
+    // Calculate when booking window opens (exactly 7 days before target, at same time)
     const target = new Date(`${targetDate}T${targetTime}:00`)
-    const now = new Date()
-    const daysUntil = Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+    const bookingWindowOpens = new Date(target)
+    bookingWindowOpens.setDate(bookingWindowOpens.getDate() - 7)
 
-    if (daysUntil <= 7) {
-      // Within booking window - run immediately using workflow_dispatch (better runner priority)
+    const now = new Date()
+    const msUntilWindow = bookingWindowOpens.getTime() - now.getTime()
+    const hoursUntilWindow = msUntilWindow / (1000 * 60 * 60)
+
+    // If booking window opens within 1 hour, trigger now (with run_at for precise timing)
+    // Otherwise, create a scheduled issue for the cron to pick up
+    if (hoursUntilWindow <= 1) {
+      // Booking window opens within 1 hour - trigger workflow now with run_at for precise timing
+      const runAt = bookingWindowOpens.toISOString()
+      const shouldWait = msUntilWindow > 0 // Only wait if window hasn't opened yet
+
       const response = await fetch(
         `https://api.github.com/repos/${githubRepo}/actions/workflows/book-court.yml/dispatches`,
         {
@@ -43,6 +52,7 @@ export async function POST(request: NextRequest) {
             inputs: {
               target_date: targetDate,
               target_time: targetTime,
+              run_at: shouldWait ? runAt : '', // Only set run_at if we need to wait
             },
           }),
         }
@@ -57,10 +67,16 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      const message = shouldWait
+        ? `Booking triggered! Will execute at ${bookingWindowOpens.toLocaleString()} when window opens.`
+        : `Booking started immediately for ${targetDate} at ${targetTime}`
+
       return NextResponse.json({
         success: true,
         scheduled: false,
-        message: `Booking started immediately for ${targetDate} at ${targetTime}`,
+        willWait: shouldWait,
+        runAt: shouldWait ? runAt : null,
+        message,
       })
     } else {
       // More than 7 days away - create a scheduled issue
