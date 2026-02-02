@@ -294,13 +294,44 @@ async function runBooking() {
   }
 }
 
-// Run the booking
-runBooking()
-  .then(result => {
-    console.log('Booking completed:', result);
-    process.exit(0);
-  })
-  .catch(error => {
-    console.error('Booking failed:', error.message);
-    process.exit(1);
-  });
+// Run booking with retries at :00, :01, :02
+async function runWithRetries() {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 60 * 1000; // 1 minute
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    log(`Attempt ${attempt}/${MAX_RETRIES}...`);
+
+    try {
+      const result = await runBooking();
+      console.log('Booking completed:', result);
+      return result;
+    } catch (error) {
+      const message = error.message || 'Unknown error';
+      log(`Attempt ${attempt} failed: ${message}`, 'error');
+
+      // Check if it's a "not available yet" type error worth retrying
+      const isRetryable = message.includes('not available') ||
+                          message.includes('No courts available') ||
+                          message.includes('Could not find time slot') ||
+                          message.includes('timeout') ||
+                          message.includes('Navigation');
+
+      if (attempt < MAX_RETRIES && isRetryable) {
+        log(`Waiting ${RETRY_DELAY_MS / 1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      } else if (attempt === MAX_RETRIES) {
+        await notify(`All ${MAX_RETRIES} booking attempts failed: ${message}`);
+        throw error;
+      } else {
+        // Non-retryable error
+        await notify(`Booking failed (non-retryable): ${message}`);
+        throw error;
+      }
+    }
+  }
+}
+
+runWithRetries()
+  .then(() => process.exit(0))
+  .catch(() => process.exit(1));
