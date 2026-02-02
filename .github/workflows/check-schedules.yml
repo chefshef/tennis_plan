@@ -1,0 +1,85 @@
+name: Check Scheduled Bookings
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allow manual trigger for testing
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check and run due bookings
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TFC_USERNAME: ${{ secrets.TFC_USERNAME }}
+          TFC_PASSWORD: ${{ secrets.TFC_PASSWORD }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          # Fetch open issues with 'scheduled' label
+          ISSUES=$(gh issue list --label "scheduled" --json number,title,body --limit 100)
+
+          echo "Found scheduled bookings:"
+          echo "$ISSUES" | jq -r '.[] | "Issue #\(.number): \(.title)"'
+
+          # Current timestamp
+          NOW=$(date +%s)
+
+          # Process each issue
+          echo "$ISSUES" | jq -c '.[]' | while read -r issue; do
+            NUMBER=$(echo "$issue" | jq -r '.number')
+            TITLE=$(echo "$issue" | jq -r '.title')
+            BODY=$(echo "$issue" | jq -r '.body')
+
+            # Parse target date and time from body (format: "Date: YYYY-MM-DD\nTime: HH:MM")
+            TARGET_DATE=$(echo "$BODY" | grep "Date:" | cut -d' ' -f2)
+            TARGET_TIME=$(echo "$BODY" | grep "Time:" | cut -d' ' -f2)
+
+            if [ -z "$TARGET_DATE" ] || [ -z "$TARGET_TIME" ]; then
+              echo "Issue #$NUMBER: Missing date or time, skipping"
+              continue
+            fi
+
+            # Calculate when booking should run (7 days before target date, at midnight)
+            # Convert target date to timestamp and subtract 7 days
+            TARGET_TS=$(date -d "$TARGET_DATE" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$TARGET_DATE" +%s 2>/dev/null)
+            SEVEN_DAYS=$((7 * 24 * 60 * 60))
+            RUN_TS=$((TARGET_TS - SEVEN_DAYS))
+
+            # Check if we're within the run window (run timestamp has passed but not more than 1 hour ago)
+            ONE_HOUR=$((60 * 60))
+
+            if [ "$NOW" -ge "$RUN_TS" ] && [ "$NOW" -lt "$((RUN_TS + ONE_HOUR))" ]; then
+              echo "Issue #$NUMBER: Time to book! Target: $TARGET_DATE $TARGET_TIME"
+
+              # Export for the booking script
+              export TARGET_DATE
+              export TARGET_TIME
+
+              # Install dependencies and run booking
+              npm ci
+              npx playwright install chromium
+
+              if node scripts/book-court.js; then
+                echo "Booking successful!"
+                gh issue close "$NUMBER" --comment "✅ Booking completed successfully for $TARGET_DATE at $TARGET_TIME"
+              else
+                echo "Booking failed, will retry on next run"
+                gh issue comment "$NUMBER" --body "⚠️ Booking attempt failed at $(date). Will retry..."
+              fi
+            elif [ "$NOW" -ge "$((RUN_TS + ONE_HOUR))" ]; then
+              echo "Issue #$NUMBER: Booking window passed (was scheduled for $(date -d @$RUN_TS 2>/dev/null || date -r $RUN_TS))"
+              gh issue close "$NUMBER" --comment "❌ Booking window passed. The reservation window opened more than 1 hour ago."
+            else
+              RUN_DATE=$(date -d @$RUN_TS 2>/dev/null || date -r $RUN_TS)
+              echo "Issue #$NUMBER: Not yet time. Will run at: $RUN_DATE"
+            fi
+          done

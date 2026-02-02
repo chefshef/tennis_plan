@@ -2,18 +2,43 @@
 
 import { useState, useEffect } from 'react'
 
+interface Schedule {
+  id: number
+  targetDate: string
+  targetTime: string
+  runDate: string
+  createdAt: string
+  url: string
+}
+
 export default function Home() {
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [loadingSchedules, setLoadingSchedules] = useState(true)
 
-  // Set default date to 7 days from now
   useEffect(() => {
     const defaultDate = new Date()
     defaultDate.setDate(defaultDate.getDate() + 7)
     setDate(defaultDate.toISOString().split('T')[0])
+    fetchSchedules()
   }, [])
+
+  async function fetchSchedules() {
+    try {
+      const res = await fetch('/api/schedules')
+      const data = await res.json()
+      if (data.success) {
+        setSchedules(data.schedules)
+      }
+    } catch (e) {
+      console.error('Failed to fetch schedules', e)
+    } finally {
+      setLoadingSchedules(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -31,14 +56,41 @@ export default function Home() {
       const data = await res.json()
 
       if (data.success) {
-        setMessage({ type: 'success', text: `Booking triggered for ${date} at ${formatTime(time)}. Check your notifications!` })
+        if (data.scheduled) {
+          setMessage({
+            type: 'success',
+            text: `Scheduled! Will book on ${new Date(data.runDate).toLocaleDateString()} when the reservation window opens.`
+          })
+        } else {
+          setMessage({
+            type: 'success',
+            text: `Booking started! Check notifications for results.`
+          })
+        }
+        fetchSchedules()
       } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to trigger booking' })
+        setMessage({ type: 'error', text: data.error || 'Failed to schedule booking' })
       }
     } catch (e) {
       setMessage({ type: 'error', text: 'Failed to connect to server' })
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleCancel(id: number) {
+    if (!confirm('Cancel this scheduled booking?')) return
+
+    try {
+      const res = await fetch(`/api/schedules?id=${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) {
+        fetchSchedules()
+      } else {
+        alert(data.error || 'Failed to cancel')
+      }
+    } catch (e) {
+      alert('Failed to cancel')
     }
   }
 
@@ -49,20 +101,61 @@ export default function Home() {
     return `${displayHour}:${minutes.toString().padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`
   }
 
+  function formatDate(dateStr: string) {
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
+
   function getMinDate() {
     const min = new Date()
     min.setDate(min.getDate() + 1)
     return min.toISOString().split('T')[0]
   }
 
+  function getDaysUntil(dateStr: string) {
+    const target = new Date(dateStr + 'T12:00:00')
+    const now = new Date()
+    return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  }
+
   return (
     <div className="container">
       <h1>Tennis Court Booker</h1>
 
+      {schedules.length > 0 && (
+        <div className="card">
+          <h2>Scheduled Bookings</h2>
+          <div className="schedules-list">
+            {schedules.map((s) => (
+              <div key={s.id} className="schedule-item">
+                <div className="schedule-info">
+                  <div className="schedule-target">
+                    {formatDate(s.targetDate)} at {formatTime(s.targetTime)}
+                  </div>
+                  <div className="schedule-run">
+                    Books on {formatDate(s.runDate)} ({getDaysUntil(s.runDate)} days)
+                  </div>
+                </div>
+                <button
+                  className="btn-cancel"
+                  onClick={() => handleCancel(s.id)}
+                  title="Cancel booking"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <h2>Book a Court</h2>
         <p className="hint">
-          Select when you want to play. The booking script will run immediately via GitHub Actions.
+          Select when you want to play. If more than 7 days away, it will be scheduled to book automatically when the reservation window opens.
         </p>
 
         {message && (
@@ -123,7 +216,7 @@ export default function Home() {
             </select>
           </div>
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Triggering...' : 'Book Now'}
+            {loading ? 'Scheduling...' : date && getDaysUntil(date) > 7 ? 'Schedule Booking' : 'Book Now'}
           </button>
         </form>
       </div>
@@ -132,8 +225,8 @@ export default function Home() {
         <h2>How it works</h2>
         <ol className="how-it-works">
           <li>Select your desired date and time</li>
-          <li>Click "Book Now" to trigger the booking script</li>
-          <li>GitHub Actions runs Playwright to book the court</li>
+          <li>If within 7 days, booking runs immediately</li>
+          <li>If more than 7 days away, it's scheduled to run when the window opens</li>
           <li>You'll get a push notification with the result</li>
         </ol>
         <p className="hint">
