@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { store } from '@/lib/store'
 import { runAutomation } from '@/lib/browser'
-import { initScheduler } from '@/lib/scheduler'
-
-// Initialize scheduler on first API call
-initScheduler()
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     // If no target time provided and none scheduled, we can't run
-    const state = store.getState()
+    const state = await store.getStateAsync()
     if (!targetTime && !state.targetReservationTime) {
       return NextResponse.json({
         success: false,
@@ -31,17 +27,17 @@ export async function POST(request: NextRequest) {
 
     // If a new target time was provided, set it temporarily
     if (targetTime) {
-      store.setSchedule(new Date().toISOString(), targetTime.toISOString())
+      await store.setSchedule(new Date().toISOString(), targetTime.toISOString())
     }
 
     store.addLog('Manual run triggered', 'info')
     const result = await runAutomation()
-    store.setLastRun(result.success, result.message)
+    await store.setLastRun(result.success, result.message)
 
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    store.setLastRun(false, message)
+    await store.setLastRun(false, message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }

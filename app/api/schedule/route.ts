@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { store } from '@/lib/store'
-import { initScheduler } from '@/lib/scheduler'
 import { notifyScheduled } from '@/lib/notify'
-
-// Initialize scheduler on first API call
-initScheduler()
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,7 +33,7 @@ export async function POST(request: NextRequest) {
       runTime.setTime(now.getTime() + 60000) // Run in 1 minute
     }
 
-    store.setSchedule(runTime.toISOString(), reservationTime.toISOString())
+    await store.setSchedule(runTime.toISOString(), reservationTime.toISOString())
 
     // Send notification
     await notifyScheduled(reservationTime, runTime)
@@ -49,11 +45,12 @@ export async function POST(request: NextRequest) {
       message: `Script will run at ${runTime.toLocaleString()} to book court for ${reservationTime.toLocaleString()}`
     })
   } catch (error) {
+    console.error('Schedule error:', error)
     return NextResponse.json({ success: false, error: 'Invalid request' }, { status: 400 })
   }
 }
 
 export async function DELETE() {
-  store.cancelSchedule()
+  await store.cancelSchedule()
   return NextResponse.json({ success: true })
 }

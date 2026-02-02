@@ -22,7 +22,7 @@ export interface AutomationResult {
 }
 
 export async function runAutomation(): Promise<AutomationResult> {
-  const targetTime = store.getTargetReservationTime()
+  const targetTime = await store.getTargetReservationTime()
 
   if (!targetTime) {
     return { success: false, message: 'No target reservation time set' }
@@ -327,11 +327,12 @@ export async function runAutomationWithRetry(): Promise<AutomationResult> {
   }
 
   // Other failure - might be timing, network, etc. - worth retrying
-  if (store.shouldRetry()) {
-    const retryNum = store.incrementRetry()
-    const maxRetries = store.getState().maxRetries
+  if (await store.shouldRetry()) {
+    const retryNum = await store.incrementRetry()
+    const state = await store.getStateAsync()
+    const maxRetries = state.maxRetries
     store.addLog(`Will retry in 1 minute (attempt ${retryNum}/${maxRetries})`, 'info')
-    store.setLastRun(false, result.message, false) // Don't clear schedule
+    await store.setLastRun(false, result.message, false) // Don't clear schedule
     await notifyRetry(retryNum, maxRetries, result.message)
     return { ...result, message: `${result.message} - will retry` }
   }

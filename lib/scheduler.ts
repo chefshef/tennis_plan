@@ -13,7 +13,7 @@ export function initScheduler() {
 
   // Check every minute if we need to run
   cron.schedule('* * * * *', async () => {
-    const state = store.getState()
+    const state = await store.getStateAsync()
 
     if (!state.scheduledTime) return
 
@@ -33,15 +33,15 @@ export function initScheduler() {
         const result = await runAutomationWithRetry()
 
         if (result.success) {
-          store.setLastRun(true, result.message)
+          await store.setLastRun(true, result.message)
         } else if (!result.message.includes('will retry')) {
           // Final failure
-          store.setLastRun(false, result.message)
+          await store.setLastRun(false, result.message)
         }
         // If message includes "will retry", the schedule stays active
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'
-        store.setLastRun(false, `Scheduler error: ${message}`)
+        await store.setLastRun(false, `Scheduler error: ${message}`)
       }
     }
   })

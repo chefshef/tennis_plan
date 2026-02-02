@@ -1,8 +1,13 @@
-import fs from 'fs'
-import path from 'path'
+import { Redis } from '@upstash/redis'
 
-// Use a file for persistence on Railway
-const DATA_FILE = process.env.DATA_FILE || '/tmp/tennis-scheduler-data.json'
+// Initialize Upstash Redis client
+// Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Railway env vars
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL || '',
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
+})
+
+const STORE_KEY = 'tennis-scheduler-state'
 
 export interface LogEntry {
   time: string
@@ -34,117 +39,124 @@ const DEFAULT_STATE: AppState = {
   maxRetries: 10,
 }
 
-function loadState(): AppState {
+async function loadState(): Promise<AppState> {
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      const data = fs.readFileSync(DATA_FILE, 'utf-8')
-      const parsed = JSON.parse(data)
-      console.log('[STORE] Loaded state from file:', DATA_FILE)
-      return { ...DEFAULT_STATE, ...parsed }
+    const data = await redis.get<AppState>(STORE_KEY)
+    if (data) {
+      console.log('[STORE] Loaded state from Redis')
+      return { ...DEFAULT_STATE, ...data }
     }
   } catch (error) {
-    console.error('[STORE] Error loading state:', error)
+    console.error('[STORE] Error loading state from Redis:', error)
   }
   return { ...DEFAULT_STATE }
 }
 
-function saveState(state: AppState): void {
+async function saveState(state: AppState): Promise<void> {
   try {
-    // Ensure directory exists
-    const dir = path.dirname(DATA_FILE)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2))
-    console.log('[STORE] Saved state to file')
+    await redis.set(STORE_KEY, state)
+    console.log('[STORE] Saved state to Redis')
   } catch (error) {
-    console.error('[STORE] Error saving state:', error)
+    console.error('[STORE] Error saving state to Redis:', error)
   }
 }
 
-class Store {
-  private state: AppState
+// Synchronous wrapper for compatibility - uses cached state
+let cachedState: AppState = { ...DEFAULT_STATE }
+let stateLoaded = false
 
-  constructor() {
-    this.state = loadState()
-    if (this.state.logs.length === 0) {
-      this.addLog('Scheduler initialized', 'info')
+class Store {
+  async init(): Promise<void> {
+    if (!stateLoaded) {
+      cachedState = await loadState()
+      stateLoaded = true
+      if (cachedState.logs.length === 0) {
+        cachedState.logs.push({
+          time: new Date().toISOString(),
+          message: 'Scheduler initialized',
+          type: 'info',
+        })
+        await saveState(cachedState)
+      }
     }
   }
 
   getState(): AppState {
-    // Always reload from disk to ensure consistency
-    this.state = loadState()
-    return { ...this.state }
+    return { ...cachedState }
   }
 
-  private save() {
-    saveState(this.state)
+  async getStateAsync(): Promise<AppState> {
+    cachedState = await loadState()
+    return { ...cachedState }
   }
 
-  setSchedule(runTime: string, reservationTime: string) {
-    this.state = loadState() // Reload first
-    this.state.scheduledTime = runTime
-    this.state.targetReservationTime = reservationTime
-    this.state.retryCount = 0
-    this.addLog(`Scheduled: Run at ${new Date(runTime).toLocaleString()} to book ${new Date(reservationTime).toLocaleString()}`, 'info')
-    this.save()
+  async setSchedule(runTime: string, reservationTime: string): Promise<void> {
+    cachedState = await loadState()
+    cachedState.scheduledTime = runTime
+    cachedState.targetReservationTime = reservationTime
+    cachedState.retryCount = 0
+    this.addLogInternal(`Scheduled: Run at ${new Date(runTime).toLocaleString()} to book ${new Date(reservationTime).toLocaleString()}`, 'info')
+    await saveState(cachedState)
   }
 
-  cancelSchedule() {
-    this.state = loadState()
-    this.state.scheduledTime = null
-    this.state.targetReservationTime = null
-    this.state.retryCount = 0
-    this.addLog('Cancelled scheduled run', 'info')
-    this.save()
+  async cancelSchedule(): Promise<void> {
+    cachedState = await loadState()
+    cachedState.scheduledTime = null
+    cachedState.targetReservationTime = null
+    cachedState.retryCount = 0
+    this.addLogInternal('Cancelled scheduled run', 'info')
+    await saveState(cachedState)
   }
 
-  getTargetReservationTime(): Date | null {
-    this.state = loadState()
-    return this.state.targetReservationTime ? new Date(this.state.targetReservationTime) : null
+  async getTargetReservationTime(): Promise<Date | null> {
+    cachedState = await loadState()
+    return cachedState.targetReservationTime ? new Date(cachedState.targetReservationTime) : null
   }
 
-  incrementRetry(): number {
-    this.state = loadState()
-    this.state.retryCount++
-    this.save()
-    return this.state.retryCount
+  async incrementRetry(): Promise<number> {
+    cachedState = await loadState()
+    cachedState.retryCount++
+    await saveState(cachedState)
+    return cachedState.retryCount
   }
 
-  shouldRetry(): boolean {
-    this.state = loadState()
-    return this.state.retryCount < this.state.maxRetries
+  async shouldRetry(): Promise<boolean> {
+    cachedState = await loadState()
+    return cachedState.retryCount < cachedState.maxRetries
   }
 
-  setLastRun(success: boolean, message: string, clearSchedule: boolean = true) {
-    this.state = loadState()
-    this.state.lastRun = {
+  async setLastRun(success: boolean, message: string, clearSchedule: boolean = true): Promise<void> {
+    cachedState = await loadState()
+    cachedState.lastRun = {
       time: new Date().toISOString(),
       success,
       message,
     }
     if (clearSchedule) {
-      this.state.scheduledTime = null
-      this.state.targetReservationTime = null
-      this.state.retryCount = 0
+      cachedState.scheduledTime = null
+      cachedState.targetReservationTime = null
+      cachedState.retryCount = 0
     }
-    this.addLog(message, success ? 'success' : 'error')
-    this.save()
+    this.addLogInternal(message, success ? 'success' : 'error')
+    await saveState(cachedState)
   }
 
-  addLog(message: string, type: LogEntry['type'] = 'info') {
+  addLog(message: string, type: LogEntry['type'] = 'info'): void {
+    this.addLogInternal(message, type)
+    // Fire and forget save
+    saveState(cachedState).catch(console.error)
+  }
+
+  private addLogInternal(message: string, type: LogEntry['type'] = 'info'): void {
     console.log(`[${type.toUpperCase()}] ${message}`)
-    this.state.logs.push({
+    cachedState.logs.push({
       time: new Date().toISOString(),
       message,
       type,
     })
-    if (this.state.logs.length > MAX_LOGS) {
-      this.state.logs = this.state.logs.slice(-MAX_LOGS)
+    if (cachedState.logs.length > MAX_LOGS) {
+      cachedState.logs = cachedState.logs.slice(-MAX_LOGS)
     }
-    // Note: Don't call save() here to avoid recursive saves
-    // The caller should call save() when needed
   }
 }
 
