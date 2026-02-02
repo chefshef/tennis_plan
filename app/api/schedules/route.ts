@@ -40,18 +40,26 @@ export async function GET() {
       const targetDate = dateMatch?.[1] || null
       const targetTime = timeMatch?.[1] || null
 
+      // Booking window opens exactly 7 days before at the SAME TIME
       let runDate = null
-      if (targetDate) {
-        const target = new Date(targetDate)
+      let runTime = null
+      if (targetDate && targetTime) {
+        const target = new Date(`${targetDate}T${targetTime}:00`)
         target.setDate(target.getDate() - 7)
         runDate = target.toISOString().split('T')[0]
+        runTime = targetTime // Same time as target
       }
+
+      // Check if already triggered
+      const isTriggered = issue.labels?.some((l: any) => l.name === 'triggered')
 
       return {
         id: issue.number,
         targetDate,
         targetTime,
         runDate,
+        runTime,
+        isTriggered,
         createdAt: issue.created_at,
         url: issue.html_url,
       }

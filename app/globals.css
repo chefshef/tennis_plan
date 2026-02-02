@@ -298,6 +298,11 @@ button:disabled {
   border-radius: 12px;
 }
 
+.schedule-item.triggered {
+  background: rgba(251, 191, 36, 0.15);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
 .schedule-info {
   flex: 1;
 }

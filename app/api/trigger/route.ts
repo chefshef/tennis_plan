@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
       })
     } else {
       // More than 7 days away - create a scheduled issue
+      // Booking window opens exactly 7 days before at the SAME TIME
       const runDate = new Date(target)
       runDate.setDate(runDate.getDate() - 7)
 

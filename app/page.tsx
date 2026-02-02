@@ -7,6 +7,8 @@ interface Schedule {
   targetDate: string
   targetTime: string
   runDate: string
+  runTime: string
+  isTriggered: boolean
   createdAt: string
   url: string
 }
@@ -130,22 +132,27 @@ export default function Home() {
           <h2>Scheduled Bookings</h2>
           <div className="schedules-list">
             {schedules.map((s) => (
-              <div key={s.id} className="schedule-item">
+              <div key={s.id} className={`schedule-item ${s.isTriggered ? 'triggered' : ''}`}>
                 <div className="schedule-info">
                   <div className="schedule-target">
                     {formatDate(s.targetDate)} at {formatTime(s.targetTime)}
                   </div>
                   <div className="schedule-run">
-                    Books on {formatDate(s.runDate)} ({getDaysUntil(s.runDate)} days)
+                    {s.isTriggered
+                      ? '🚀 Job running - waiting for booking window'
+                      : `Books ${formatDate(s.runDate)} at ${formatTime(s.runTime)} (${getDaysUntil(s.runDate)}d)`
+                    }
                   </div>
                 </div>
-                <button
-                  className="btn-cancel"
-                  onClick={() => handleCancel(s.id)}
-                  title="Cancel booking"
-                >
-                  ✕
-                </button>
+                {!s.isTriggered && (
+                  <button
+                    className="btn-cancel"
+                    onClick={() => handleCancel(s.id)}
+                    title="Cancel booking"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             ))}
           </div>
