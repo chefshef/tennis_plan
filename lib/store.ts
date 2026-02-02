@@ -1,15 +1,13 @@
-import Redis from 'ioredis'
+import { Redis } from '@upstash/redis'
 
-// Railway auto-injects REDIS_URL when you add a Redis database
-// Fallback to Upstash if REDIS_URL isn't available
-const redisUrl = process.env.REDIS_URL || process.env.UPSTASH_REDIS_REST_URL || ''
+// TEMPORARY: Hardcode Upstash credentials until we fix env vars
+const UPSTASH_URL = 'https://helpful-penguin-61658.upstash.io'
+const UPSTASH_TOKEN = 'AfDaAAIncDFkNDhlMTQyMWZjNzA0ZWQ1YmIzOTIzZDI0ODI5ZjRlZXAxNjE2NTg'
 
-console.log('[STORE] Redis URL configured:', redisUrl ? `${redisUrl.substring(0, 30)}...` : 'MISSING')
-
-let redis: Redis | null = null
-if (redisUrl) {
-  redis = new Redis(redisUrl)
-}
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL || UPSTASH_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || UPSTASH_TOKEN,
+})
 
 const STORE_KEY = 'tennis-scheduler-state'
 
@@ -44,16 +42,11 @@ const DEFAULT_STATE: AppState = {
 }
 
 async function loadState(): Promise<AppState> {
-  if (!redis) {
-    console.log('[STORE] No Redis connection, using default state')
-    return { ...DEFAULT_STATE }
-  }
-
   try {
-    const data = await redis.get(STORE_KEY)
+    const data = await redis.get<AppState>(STORE_KEY)
     if (data) {
       console.log('[STORE] Loaded state from Redis')
-      return { ...DEFAULT_STATE, ...JSON.parse(data) }
+      return { ...DEFAULT_STATE, ...data }
     }
   } catch (error) {
     console.error('[STORE] Error loading state from Redis:', error)
@@ -62,20 +55,14 @@ async function loadState(): Promise<AppState> {
 }
 
 async function saveState(state: AppState): Promise<void> {
-  if (!redis) {
-    console.log('[STORE] No Redis connection, cannot save')
-    return
-  }
-
   try {
-    await redis.set(STORE_KEY, JSON.stringify(state))
+    await redis.set(STORE_KEY, state)
     console.log('[STORE] Saved state to Redis')
   } catch (error) {
     console.error('[STORE] Error saving state to Redis:', error)
   }
 }
 
-// Synchronous wrapper for compatibility - uses cached state
 let cachedState: AppState = { ...DEFAULT_STATE }
 
 class Store {
@@ -141,7 +128,6 @@ class Store {
 
   addLog(message: string, type: LogEntry['type'] = 'info'): void {
     this.addLogInternal(message, type)
-    // Fire and forget save
     saveState(cachedState).catch(console.error)
   }
 
@@ -158,5 +144,4 @@ class Store {
   }
 }
 
-// Singleton instance
 export const store = new Store()
