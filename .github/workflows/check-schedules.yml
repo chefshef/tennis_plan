@@ -16,8 +16,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Fetch open issues with 'scheduled' label
-          ISSUES=$(gh issue list --label "scheduled" --json number,title,body --limit 100)
+          # Fetch open issues with 'scheduled' label (exclude already triggered)
+          ISSUES=$(gh issue list --label "scheduled" --json number,title,body,labels --limit 100)
 
           echo "Found scheduled bookings:"
           echo "$ISSUES" | jq -r '.[] | "Issue #\(.number): \(.title)"'
@@ -30,6 +30,13 @@ jobs:
             NUMBER=$(echo "$issue" | jq -r '.number')
             TITLE=$(echo "$issue" | jq -r '.title')
             BODY=$(echo "$issue" | jq -r '.body')
+            LABELS=$(echo "$issue" | jq -r '.labels[].name' | tr '\n' ' ')
+
+            # Skip if already triggered
+            if echo "$LABELS" | grep -q "triggered"; then
+              echo "Issue #$NUMBER: Already triggered, skipping"
+              continue
+            fi
 
             # Parse target date and time from body
             TARGET_DATE=$(echo "$BODY" | grep "Date:" | cut -d' ' -f2)
@@ -40,24 +47,35 @@ jobs:
               continue
             fi
 
-            # Calculate when booking window opens (7 days before target date at midnight)
-            # We want to run the script at exactly this time
-            TARGET_DATETIME="${TARGET_DATE}T00:00:00"
-            BOOKING_WINDOW_TS=$(date -d "$TARGET_DATE - 7 days" +%s 2>/dev/null || \
-              date -j -v-7d -f "%Y-%m-%d" "$TARGET_DATE" +%s 2>/dev/null)
+            echo "Issue #$NUMBER: Target is $TARGET_DATE at $TARGET_TIME"
+
+            # Booking window opens exactly 7 days before, at the SAME TIME
+            # e.g., 2/18 7:00 PM booking opens at 2/11 7:00 PM
+            TARGET_DATETIME="${TARGET_DATE}T${TARGET_TIME}:00"
+
+            # Calculate booking window time (7 days before at same time)
+            BOOKING_WINDOW_TS=$(date -d "$TARGET_DATETIME - 7 days" +%s 2>/dev/null || \
+              date -j -v-7d -f "%Y-%m-%dT%H:%M:%S" "$TARGET_DATETIME" +%s 2>/dev/null)
 
             # Trigger the job 1 HOUR before the booking window opens
-            # The job will warm up, install deps, then sleep until exact time
             ONE_HOUR=3600
             TRIGGER_TS=$((BOOKING_WINDOW_TS - ONE_HOUR))
 
+            # Format times for logging
+            TRIGGER_DATE=$(date -d "@$TRIGGER_TS" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$TRIGGER_TS" "+%Y-%m-%d %H:%M")
+            BOOKING_DATE=$(date -d "@$BOOKING_WINDOW_TS" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$BOOKING_WINDOW_TS" "+%Y-%m-%d %H:%M")
+
+            echo "  - Trigger time (1hr early): $TRIGGER_DATE"
+            echo "  - Booking window opens: $BOOKING_DATE"
+            echo "  - Now: $(date '+%Y-%m-%d %H:%M')"
+
             # Check if we're in the trigger window (trigger time has passed, but booking time hasn't)
             if [ "$NOW" -ge "$TRIGGER_TS" ] && [ "$NOW" -lt "$BOOKING_WINDOW_TS" ]; then
-              echo "Issue #$NUMBER: Triggering warm-up job now! Will execute at booking window."
+              echo "Issue #$NUMBER: ✅ Triggering warm-up job now! Will execute at booking window."
 
-              # Format the exact execution time (when booking window opens)
+              # Format the exact execution time
               RUN_AT=$(date -d "@$BOOKING_WINDOW_TS" -Iseconds 2>/dev/null || \
-                date -r "$BOOKING_WINDOW_TS" +"%Y-%m-%dT%H:%M:%S" 2>/dev/null)
+                date -r "$BOOKING_WINDOW_TS" +"%Y-%m-%dT%H:%M:%S")
 
               # Trigger the booking workflow with run_at parameter
               gh workflow run book-court.yml \
@@ -65,33 +83,18 @@ jobs:
                 -f target_time="$TARGET_TIME" \
                 -f run_at="$RUN_AT"
 
-              # Mark as triggered (add label)
+              # Mark as triggered
               gh issue edit "$NUMBER" --add-label "triggered"
               gh issue comment "$NUMBER" --body "🚀 Booking job triggered at $(date). Will execute at $RUN_AT when reservation window opens."
 
             elif [ "$NOW" -ge "$BOOKING_WINDOW_TS" ]; then
-              # Check if already triggered
-              LABELS=$(gh issue view "$NUMBER" --json labels -q '.labels[].name')
-              if echo "$LABELS" | grep -q "triggered"; then
-                echo "Issue #$NUMBER: Already triggered, checking if we should close..."
-                # Give it 2 hours after booking window to complete, then close
-                TWO_HOURS=$((2 * 3600))
-                if [ "$NOW" -gt "$((BOOKING_WINDOW_TS + TWO_HOURS))" ]; then
-                  gh issue close "$NUMBER" --comment "⏰ Booking window has passed. Check workflow runs for results."
-                fi
-              else
-                echo "Issue #$NUMBER: Missed trigger window! Triggering immediately as fallback."
-                gh workflow run book-court.yml \
-                  -f target_date="$TARGET_DATE" \
-                  -f target_time="$TARGET_TIME"
-                gh issue edit "$NUMBER" --add-label "triggered" --add-label "late"
-                gh issue comment "$NUMBER" --body "⚠️ Missed optimal trigger window. Running immediately at $(date)."
-              fi
+              echo "Issue #$NUMBER: ⚠️ Missed trigger window! Triggering immediately as fallback."
+              gh workflow run book-court.yml \
+                -f target_date="$TARGET_DATE" \
+                -f target_time="$TARGET_TIME"
+              gh issue edit "$NUMBER" --add-label "triggered" --add-label "late"
+              gh issue comment "$NUMBER" --body "⚠️ Missed optimal trigger window. Running immediately at $(date)."
             else
-              TRIGGER_DATE=$(date -d "@$TRIGGER_TS" 2>/dev/null || date -r "$TRIGGER_TS")
-              BOOKING_DATE=$(date -d "@$BOOKING_WINDOW_TS" 2>/dev/null || date -r "$BOOKING_WINDOW_TS")
-              echo "Issue #$NUMBER: Not yet time."
-              echo "  - Will trigger at: $TRIGGER_DATE (1 hour before)"
-              echo "  - Booking window opens: $BOOKING_DATE"
+              echo "Issue #$NUMBER: ⏳ Not yet time. Will trigger at $TRIGGER_DATE"
             fi
           done
