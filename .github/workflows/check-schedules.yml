@@ -15,6 +15,7 @@ jobs:
       - name: Check and trigger due bookings
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TZ: America/New_York
         run: |
           # Fetch open issues with 'scheduled' label (exclude already triggered)
           ISSUES=$(gh issue list --label "scheduled" --json number,title,body,labels --limit 100)
@@ -22,8 +23,9 @@ jobs:
           echo "Found scheduled bookings:"
           echo "$ISSUES" | jq -r '.[] | "Issue #\(.number): \(.title)"'
 
-          # Current timestamp
+          # Current timestamp (in EST due to TZ env var)
           NOW=$(date +%s)
+          echo "Current time (EST): $(date '+%Y-%m-%d %H:%M %Z')"
 
           # Process each issue
           echo "$ISSUES" | jq -c '.[]' | while read -r issue; do
