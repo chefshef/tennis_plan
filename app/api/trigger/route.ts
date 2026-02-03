@@ -140,19 +140,36 @@ export async function POST(request: NextRequest) {
         const errorText = await cronResponse.text()
         console.error('cron-job.org API error:', cronResponse.status, errorText)
         return NextResponse.json(
-          { success: false, error: `Scheduling error: ${cronResponse.status}` },
+          { success: false, error: `Scheduling error: ${cronResponse.status} - ${errorText}` },
           { status: 500 }
         )
       }
 
       const cronResult = await cronResponse.json()
+      const jobId = cronResult.jobId
+
+      // Update the job URL to include the jobId so webhook can delete it after running
+      if (jobId) {
+        await fetch(`https://api.cron-job.org/jobs/${jobId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${cronJobApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            job: {
+              url: `${webhookUrl}?date=${targetDate}&time=${targetTime}&jobId=${jobId}`,
+            },
+          }),
+        })
+      }
 
       return NextResponse.json({
         success: true,
         scheduled: true,
         runDate: runDateStr,
         runTime: targetTime,
-        cronJobId: cronResult.jobId,
+        cronJobId: jobId,
         message: `Scheduled for ${targetDate} at ${targetTime}. Will book on ${runDateStr} at ${targetTime} EST.`,
       })
     }

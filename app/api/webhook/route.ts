@@ -5,6 +5,7 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const targetDate = searchParams.get('date')
   const targetTime = searchParams.get('time')
+  const jobId = searchParams.get('jobId')
 
   if (!targetDate || !targetTime) {
     return NextResponse.json(
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
 
   const githubToken = process.env.GITHUB_TOKEN
   const githubRepo = process.env.GITHUB_REPO || 'chefshef/tennis_plan'
+  const cronJobApiKey = process.env.CRONJOB_API_KEY
 
   if (!githubToken) {
     return NextResponse.json(
@@ -24,6 +26,21 @@ export async function GET(request: NextRequest) {
   }
 
   console.log(`Webhook triggered for ${targetDate} at ${targetTime}`)
+
+  // Delete the cron job so it doesn't run again next year
+  if (jobId && cronJobApiKey) {
+    try {
+      await fetch(`https://api.cron-job.org/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${cronJobApiKey}`,
+        },
+      })
+      console.log(`Deleted cron job ${jobId}`)
+    } catch (e) {
+      console.error('Failed to delete cron job:', e)
+    }
+  }
 
   // Trigger the GitHub workflow
   const response = await fetch(
