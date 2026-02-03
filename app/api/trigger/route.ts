@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
 
     const githubToken = process.env.GITHUB_TOKEN
     const githubRepo = process.env.GITHUB_REPO || 'chefshef/tennis_plan'
+    const cronJobApiKey = process.env.CRONJOB_API_KEY
 
     if (!githubToken) {
       return NextResponse.json(
@@ -27,9 +28,10 @@ export async function POST(request: NextRequest) {
     const [year, month, day] = targetDate.split('-').map(Number)
     const [hour, minute] = targetTime.split(':').map(Number)
 
-    // Calculate run date (7 days before target)
-    const runDate = new Date(year, month - 1, day - 7)
-    const runDateStr = `${runDate.getFullYear()}-${String(runDate.getMonth() + 1).padStart(2, '0')}-${String(runDate.getDate()).padStart(2, '0')}`
+    // Calculate run date (7 days before target) - in EST
+    // Create date in EST by using the specific time
+    const runDateTime = new Date(Date.UTC(year, month - 1, day - 7, hour + 5, minute)) // +5 for EST to UTC
+    const runDateStr = `${year}-${String(month).padStart(2, '0')}-${String(day - 7).padStart(2, '0')}`
 
     // Get current date/time in EST
     const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
@@ -85,77 +87,73 @@ export async function POST(request: NextRequest) {
         message: `Booking started for ${targetDate} at ${targetTime}`,
       })
     } else {
-      // Window not open yet - add to scheduled bookings file
-      // Cron will trigger when booking window opens
-
-      // Calculate exact trigger timestamp (booking window time in epoch ms)
-      const bookingWindowDate = new Date(year, month - 1, day - 7, hour, minute)
-      const triggerAt = bookingWindowDate.getTime()
-
-      // Get current scheduled bookings
-      const fileResponse = await fetch(
-        `https://api.github.com/repos/${githubRepo}/contents/scheduled-bookings.json`,
-        {
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `Bearer ${githubToken}`,
-          },
-        }
-      )
-
-      let bookings: Array<{ targetDate: string; targetTime: string; triggerAt: number; id: string }> = []
-      let fileSha = ''
-
-      if (fileResponse.ok) {
-        const fileData = await fileResponse.json()
-        fileSha = fileData.sha
-        const content = Buffer.from(fileData.content, 'base64').toString('utf-8')
-        const parsed = JSON.parse(content)
-        bookings = parsed.bookings || []
-      }
-
-      // Add new booking
-      const bookingId = `${targetDate}-${targetTime}-${Date.now()}`
-      bookings.push({
-        id: bookingId,
-        targetDate,
-        targetTime,
-        triggerAt,
-      })
-
-      // Update file in repo
-      const updateResponse = await fetch(
-        `https://api.github.com/repos/${githubRepo}/contents/scheduled-bookings.json`,
-        {
-          method: 'PUT',
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `Bearer ${githubToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: `Schedule booking for ${targetDate} at ${targetTime}`,
-            content: Buffer.from(JSON.stringify({ bookings }, null, 2)).toString('base64'),
-            sha: fileSha,
-          }),
-        }
-      )
-
-      if (!updateResponse.ok) {
-        const errorText = await updateResponse.text()
-        console.error('GitHub API error:', updateResponse.status, errorText)
+      // Window not open yet - schedule via cron-job.org
+      if (!cronJobApiKey) {
         return NextResponse.json(
-          { success: false, error: `GitHub API error: ${updateResponse.status}` },
+          { success: false, error: 'CRONJOB_API_KEY not configured' },
           { status: 500 }
         )
       }
+
+      // Get the webhook URL (this Vercel deployment)
+      const webhookUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}/api/webhook`
+        : process.env.WEBHOOK_URL || 'https://tennis-plan.vercel.app/api/webhook'
+
+      // Schedule the cron job for exactly when booking window opens (in UTC)
+      // EST is UTC-5, so add 5 hours to convert EST to UTC
+      const scheduleHourUTC = (hour + 5) % 24
+      const scheduleDayAdjust = (hour + 5) >= 24 ? 1 : 0
+
+      const scheduleDay = day - 7 + scheduleDayAdjust
+      const scheduleMonth = month
+      const scheduleYear = year
+
+      // Create cron job via cron-job.org API
+      const cronResponse = await fetch('https://api.cron-job.org/jobs', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${cronJobApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          job: {
+            title: `Tennis: ${targetDate} ${targetTime}`,
+            url: `${webhookUrl}?date=${targetDate}&time=${targetTime}`,
+            enabled: true,
+            saveResponses: true,
+            schedule: {
+              timezone: 'America/New_York',
+              expiresAt: 0,
+              hours: [hour],
+              minutes: [minute],
+              mdays: [day - 7],
+              months: [month - 1], // 0-indexed
+              wdays: [-1], // any day of week
+            },
+            requestMethod: 1, // GET
+          },
+        }),
+      })
+
+      if (!cronResponse.ok) {
+        const errorText = await cronResponse.text()
+        console.error('cron-job.org API error:', cronResponse.status, errorText)
+        return NextResponse.json(
+          { success: false, error: `Scheduling error: ${cronResponse.status}` },
+          { status: 500 }
+        )
+      }
+
+      const cronResult = await cronResponse.json()
 
       return NextResponse.json({
         success: true,
         scheduled: true,
         runDate: runDateStr,
-        bookingId,
-        message: `Scheduled for ${targetDate} at ${targetTime}. Will book on ${runDateStr} at ${targetTime}.`,
+        runTime: targetTime,
+        cronJobId: cronResult.jobId,
+        message: `Scheduled for ${targetDate} at ${targetTime}. Will book on ${runDateStr} at ${targetTime} EST.`,
       })
     }
   } catch (error) {
