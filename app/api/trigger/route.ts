@@ -28,10 +28,9 @@ export async function POST(request: NextRequest) {
     const [year, month, day] = targetDate.split('-').map(Number)
     const [hour, minute] = targetTime.split(':').map(Number)
 
-    // Calculate run date (7 days before target) - in EST
-    // Create date in EST by using the specific time
-    const runDateTime = new Date(Date.UTC(year, month - 1, day - 7, hour + 5, minute)) // +5 for EST to UTC
-    const runDateStr = `${year}-${String(month).padStart(2, '0')}-${String(day - 7).padStart(2, '0')}`
+    // Calculate run date (7 days before target) - handles month boundaries
+    const runDateTime = new Date(year, month - 1, day - 7, hour, minute)
+    const runDateStr = `${runDateTime.getFullYear()}-${String(runDateTime.getMonth() + 1).padStart(2, '0')}-${String(runDateTime.getDate()).padStart(2, '0')}`
 
     // Get current date/time in EST
     const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
@@ -109,6 +108,19 @@ export async function POST(request: NextRequest) {
       const scheduleMonth = month
       const scheduleYear = year
 
+      // Calculate the actual run date (handles month boundaries)
+      const runDate = new Date(year, month - 1, day - 7, hour, minute)
+      const runDay = runDate.getDate()
+      const runMonth = runDate.getMonth() + 1 // 1-indexed for cron-job.org
+      const runYear = runDate.getFullYear()
+      const runHour = runDate.getHours()
+      const runMinute = runDate.getMinutes()
+
+      // Calculate expiry time (1 hour after scheduled run)
+      const expiresAt = Math.floor(runDate.getTime() / 1000) + 3600
+
+      console.log(`Scheduling cron for: ${runYear}-${runMonth}-${runDay} at ${runHour}:${runMinute}, expires at ${expiresAt}`)
+
       // Create cron job via cron-job.org API
       const cronResponse = await fetch('https://api.cron-job.org/jobs', {
         method: 'PUT',
@@ -124,11 +136,11 @@ export async function POST(request: NextRequest) {
             saveResponses: true,
             schedule: {
               timezone: 'America/New_York',
-              expiresAt: 0,
-              hours: [hour],
-              minutes: [minute],
-              mdays: [day - 7],
-              months: [month - 1], // 0-indexed
+              expiresAt: expiresAt, // Expire after first run
+              hours: [runHour],
+              minutes: [runMinute],
+              mdays: [runDay],
+              months: [runMonth], // 1-indexed (1=Jan, 2=Feb, etc.)
               wdays: [-1], // any day of week
             },
             requestMethod: 1, // GET
