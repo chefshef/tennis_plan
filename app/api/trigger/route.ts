@@ -29,12 +29,11 @@ export async function POST(request: NextRequest) {
 
     const now = new Date()
     const msUntilWindow = bookingWindowOpens.getTime() - now.getTime()
-    const hoursUntilWindow = msUntilWindow / (1000 * 60 * 60)
 
-    // If booking window opens within 1 hour, trigger now
-    // Otherwise, create a scheduled issue for the cron to pick up
-    if (hoursUntilWindow <= 1) {
-      // Booking window opens soon or already open - trigger workflow now
+    // If booking window is ALREADY OPEN (past), trigger now
+    // Otherwise, create a scheduled issue for the cron to pick up at the right time
+    if (msUntilWindow <= 0) {
+      // Booking window already open - trigger workflow now
       const response = await fetch(
         `https://api.github.com/repos/${githubRepo}/actions/workflows/book-court.yml/dispatches`,
         {
@@ -63,14 +62,10 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const message = msUntilWindow > 0
-        ? `Booking triggered! Window opens at ${bookingWindowOpens.toLocaleTimeString()}. Will retry if not available yet.`
-        : `Booking started for ${targetDate} at ${targetTime}`
-
       return NextResponse.json({
         success: true,
         scheduled: false,
-        message,
+        message: `Booking started for ${targetDate} at ${targetTime}`,
       })
     } else {
       // More than 7 days away - create a scheduled issue
