@@ -112,14 +112,10 @@ export async function POST(request: NextRequest) {
       const runDate = new Date(year, month - 1, day - 7, hour, minute)
       const runDay = runDate.getDate()
       const runMonth = runDate.getMonth() + 1 // 1-indexed for cron-job.org
-      const runYear = runDate.getFullYear()
       const runHour = runDate.getHours()
       const runMinute = runDate.getMinutes()
 
-      // Calculate expiry time (1 hour after scheduled run)
-      const expiresAt = Math.floor(runDate.getTime() / 1000) + 3600
-
-      console.log(`Scheduling cron for: ${runYear}-${runMonth}-${runDay} at ${runHour}:${runMinute}, expires at ${expiresAt}`)
+      console.log(`Scheduling cron for: ${runMonth}/${runDay} at ${runHour}:${String(runMinute).padStart(2, '0')} EST`)
 
       // Create cron job via cron-job.org API
       const cronResponse = await fetch('https://api.cron-job.org/jobs', {
@@ -136,12 +132,11 @@ export async function POST(request: NextRequest) {
             saveResponses: true,
             schedule: {
               timezone: 'America/New_York',
-              expiresAt: expiresAt, // Expire after first run
               hours: [runHour],
               minutes: [runMinute],
               mdays: [runDay],
-              months: [runMonth], // 1-indexed (1=Jan, 2=Feb, etc.)
-              wdays: [-1], // any day of week
+              months: [runMonth],
+              wdays: [-1],
             },
             requestMethod: 1, // GET
           },
