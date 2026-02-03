@@ -15,88 +15,70 @@ jobs:
       - name: Check and trigger due bookings
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TZ: America/New_York
         run: |
-          # Fetch open issues with 'scheduled' label (exclude already triggered)
-          ISSUES=$(gh issue list --label "scheduled" --json number,title,body,labels --limit 100)
+          # Current time in milliseconds
+          NOW_MS=$(($(date +%s) * 1000))
+          echo "Current time: $(date)"
+          echo "Current epoch ms: $NOW_MS"
 
-          echo "Found scheduled bookings:"
-          echo "$ISSUES" | jq -r '.[] | "Issue #\(.number): \(.title)"'
+          # Read scheduled bookings
+          if [ ! -f scheduled-bookings.json ]; then
+            echo "No scheduled-bookings.json found"
+            exit 0
+          fi
 
-          # Current timestamp (in EST due to TZ env var)
-          NOW=$(date +%s)
-          echo "Current time (EST): $(date '+%Y-%m-%d %H:%M %Z')"
+          BOOKINGS=$(cat scheduled-bookings.json)
+          echo "Bookings file contents:"
+          echo "$BOOKINGS" | jq .
 
-          # Process each issue
-          echo "$ISSUES" | jq -c '.[]' | while read -r issue; do
-            NUMBER=$(echo "$issue" | jq -r '.number')
-            TITLE=$(echo "$issue" | jq -r '.title')
-            BODY=$(echo "$issue" | jq -r '.body')
-            LABELS=$(echo "$issue" | jq -r '.labels[].name' | tr '\n' ' ')
+          # Process each booking
+          TRIGGERED_IDS=""
+          echo "$BOOKINGS" | jq -c '.bookings[]' 2>/dev/null | while read -r booking; do
+            ID=$(echo "$booking" | jq -r '.id')
+            TARGET_DATE=$(echo "$booking" | jq -r '.targetDate')
+            TARGET_TIME=$(echo "$booking" | jq -r '.targetTime')
+            TRIGGER_AT=$(echo "$booking" | jq -r '.triggerAt')
 
-            # Skip if already triggered
-            if echo "$LABELS" | grep -q "triggered"; then
-              echo "Issue #$NUMBER: Already triggered, skipping"
-              continue
-            fi
+            echo ""
+            echo "Checking booking: $ID"
+            echo "  Target: $TARGET_DATE at $TARGET_TIME"
+            echo "  Trigger at: $TRIGGER_AT ($(date -d @$((TRIGGER_AT / 1000)) 2>/dev/null || date -r $((TRIGGER_AT / 1000))))"
+            echo "  Now: $NOW_MS"
 
-            # Parse target date and time from body
-            TARGET_DATE=$(echo "$BODY" | grep "Date:" | cut -d' ' -f2)
-            TARGET_TIME=$(echo "$BODY" | grep "Time:" | cut -d' ' -f2)
+            # Trigger if current time >= trigger time
+            if [ "$NOW_MS" -ge "$TRIGGER_AT" ]; then
+              echo "  ✅ Time to trigger!"
 
-            if [ -z "$TARGET_DATE" ] || [ -z "$TARGET_TIME" ]; then
-              echo "Issue #$NUMBER: Missing date or time, skipping"
-              continue
-            fi
-
-            echo "Issue #$NUMBER: Target is $TARGET_DATE at $TARGET_TIME"
-
-            # Booking window opens exactly 7 days before, at the SAME TIME
-            # e.g., 2/18 7:00 PM booking opens at 2/11 7:00 PM
-            TARGET_DATETIME="${TARGET_DATE} ${TARGET_TIME}:00"
-
-            # Calculate booking window time (7 days before at same time)
-            # First get target as epoch, then subtract 7 days (604800 seconds)
-            TARGET_TS=$(date -d "$TARGET_DATETIME" +%s 2>/dev/null || \
-              date -j -f "%Y-%m-%d %H:%M:%S" "$TARGET_DATETIME" +%s 2>/dev/null)
-            SEVEN_DAYS=$((7 * 24 * 60 * 60))
-            BOOKING_WINDOW_TS=$((TARGET_TS - SEVEN_DAYS))
-
-            # Trigger when booking window is within 5 minutes (cron runs every 5 min)
-            FIVE_MINS=300
-            TRIGGER_TS=$((BOOKING_WINDOW_TS - FIVE_MINS))
-
-            # Format times for logging
-            TRIGGER_DATE=$(date -d "@$TRIGGER_TS" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$TRIGGER_TS" "+%Y-%m-%d %H:%M")
-            BOOKING_DATE=$(date -d "@$BOOKING_WINDOW_TS" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$BOOKING_WINDOW_TS" "+%Y-%m-%d %H:%M")
-
-            echo "  - Trigger time (5min early): $TRIGGER_DATE"
-            echo "  - Booking window opens: $BOOKING_DATE"
-            echo "  - Now: $(date '+%Y-%m-%d %H:%M')"
-
-            # Check if we're in the trigger window (trigger time has passed, but booking time hasn't)
-            if [ "$NOW" -ge "$TRIGGER_TS" ] && [ "$NOW" -lt "$BOOKING_WINDOW_TS" ]; then
-              echo "Issue #$NUMBER: ✅ Booking window opens soon! Triggering job now."
-
-              # Trigger the booking workflow (using workflow_dispatch for better runner priority)
+              # Trigger the booking workflow
               gh workflow run book-court.yml \
                 --ref main \
                 -f target_date="$TARGET_DATE" \
                 -f target_time="$TARGET_TIME"
 
-              # Mark as triggered
-              gh issue edit "$NUMBER" --add-label "triggered"
-              gh issue comment "$NUMBER" --body "🚀 Booking job triggered at $(date). Running now - will retry if slot not available yet."
-
-            elif [ "$NOW" -ge "$BOOKING_WINDOW_TS" ]; then
-              echo "Issue #$NUMBER: ⚠️ Missed trigger window! Triggering immediately as fallback."
-              gh workflow run book-court.yml \
-                --ref main \
-                -f target_date="$TARGET_DATE" \
-                -f target_time="$TARGET_TIME"
-              gh issue edit "$NUMBER" --add-label "triggered" --add-label "late"
-              gh issue comment "$NUMBER" --body "⚠️ Missed optimal trigger window. Running immediately at $(date)."
+              echo "$ID" >> /tmp/triggered_ids.txt
             else
-              echo "Issue #$NUMBER: ⏳ Not yet time. Will trigger at $TRIGGER_DATE"
+              DIFF=$(( (TRIGGER_AT - NOW_MS) / 1000 / 60 ))
+              echo "  ⏳ Not yet - $DIFF minutes until trigger"
             fi
           done
+
+          # Remove triggered bookings from file
+          if [ -f /tmp/triggered_ids.txt ]; then
+            echo ""
+            echo "Removing triggered bookings from file..."
+
+            # Read triggered IDs
+            while read -r triggered_id; do
+              BOOKINGS=$(echo "$BOOKINGS" | jq --arg id "$triggered_id" '.bookings = [.bookings[] | select(.id != $id)]')
+            done < /tmp/triggered_ids.txt
+
+            # Update file
+            echo "$BOOKINGS" > scheduled-bookings.json
+
+            # Commit changes
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add scheduled-bookings.json
+            git commit -m "Remove triggered bookings" || true
+            git push || true
+          fi
