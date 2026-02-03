@@ -23,12 +23,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculate when booking window opens (exactly 7 days before target, at same time)
-    const target = new Date(`${targetDate}T${targetTime}:00`)
-    const bookingWindowOpens = new Date(target)
+    // Use EST timezone since that's where the tennis facility is
+    const targetDateTime = new Date(`${targetDate}T${targetTime}:00-05:00`) // EST
+    const bookingWindowOpens = new Date(targetDateTime)
     bookingWindowOpens.setDate(bookingWindowOpens.getDate() - 7)
 
     const now = new Date()
     const msUntilWindow = bookingWindowOpens.getTime() - now.getTime()
+
+    console.log(`Target: ${targetDateTime.toISOString()}, Window opens: ${bookingWindowOpens.toISOString()}, Now: ${now.toISOString()}, msUntilWindow: ${msUntilWindow}`)
 
     // If booking window is ALREADY OPEN (past), trigger now
     // Otherwise, create a scheduled issue for the cron to pick up at the right time
