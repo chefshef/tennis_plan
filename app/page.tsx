@@ -112,9 +112,12 @@ export default function Home() {
   }
 
   function getMinDate() {
-    const min = new Date()
-    min.setDate(min.getDate() + 1)
-    return min.toISOString().split('T')[0]
+    // Allow today - system handles immediate bookings if window is open
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   function getDaysUntil(dateStr: string) {
