@@ -14,6 +14,27 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  // Calculate when this should actually run (7 days before target)
+  const [year, month, day] = targetDate.split('-').map(Number)
+  const [hour, minute] = targetTime.split(':').map(Number)
+  const scheduledRunTime = new Date(year, month - 1, day - 7, hour, minute)
+
+  // Get current time in EST
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+
+  // Only proceed if we're within 10 minutes of scheduled time
+  const diffMinutes = Math.abs(nowEST.getTime() - scheduledRunTime.getTime()) / (1000 * 60)
+
+  if (diffMinutes > 10) {
+    console.log(`Webhook called too early. Scheduled: ${scheduledRunTime.toISOString()}, Now: ${nowEST.toISOString()}, Diff: ${diffMinutes} mins`)
+    return NextResponse.json({
+      success: false,
+      error: 'Not time yet',
+      scheduledFor: scheduledRunTime.toISOString(),
+      currentTime: nowEST.toISOString(),
+    })
+  }
+
   const githubToken = process.env.GITHUB_TOKEN
   const githubRepo = process.env.GITHUB_REPO || 'chefshef/tennis_plan'
   const cronJobApiKey = process.env.CRONJOB_API_KEY
@@ -25,7 +46,7 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  console.log(`Webhook triggered for ${targetDate} at ${targetTime}`)
+  console.log(`Webhook triggered for ${targetDate} at ${targetTime} - proceeding with booking`)
 
   // Delete the cron job so it doesn't run again next year
   if (jobId && cronJobApiKey) {
