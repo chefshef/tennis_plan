@@ -53,11 +53,14 @@ jobs:
 
             # Booking window opens exactly 7 days before, at the SAME TIME
             # e.g., 2/18 7:00 PM booking opens at 2/11 7:00 PM
-            TARGET_DATETIME="${TARGET_DATE}T${TARGET_TIME}:00"
+            TARGET_DATETIME="${TARGET_DATE} ${TARGET_TIME}:00"
 
             # Calculate booking window time (7 days before at same time)
-            BOOKING_WINDOW_TS=$(date -d "$TARGET_DATETIME - 7 days" +%s 2>/dev/null || \
-              date -j -v-7d -f "%Y-%m-%dT%H:%M:%S" "$TARGET_DATETIME" +%s 2>/dev/null)
+            # First get target as epoch, then subtract 7 days (604800 seconds)
+            TARGET_TS=$(date -d "$TARGET_DATETIME" +%s 2>/dev/null || \
+              date -j -f "%Y-%m-%d %H:%M:%S" "$TARGET_DATETIME" +%s 2>/dev/null)
+            SEVEN_DAYS=$((7 * 24 * 60 * 60))
+            BOOKING_WINDOW_TS=$((TARGET_TS - SEVEN_DAYS))
 
             # Trigger when booking window is within 5 minutes (cron runs every 5 min)
             FIVE_MINS=300
