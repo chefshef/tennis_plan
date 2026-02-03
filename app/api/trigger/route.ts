@@ -23,19 +23,33 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculate when booking window opens (exactly 7 days before target, at same time)
-    // Use EST timezone since that's where the tennis facility is
-    const targetDateTime = new Date(`${targetDate}T${targetTime}:00-05:00`) // EST
-    const bookingWindowOpens = new Date(targetDateTime)
-    bookingWindowOpens.setDate(bookingWindowOpens.getDate() - 7)
+    // Parse target date components
+    const [year, month, day] = targetDate.split('-').map(Number)
+    const [hour, minute] = targetTime.split(':').map(Number)
 
-    const now = new Date()
-    const msUntilWindow = bookingWindowOpens.getTime() - now.getTime()
+    // Calculate run date (7 days before target)
+    const runDate = new Date(year, month - 1, day - 7)
+    const runDateStr = `${runDate.getFullYear()}-${String(runDate.getMonth() + 1).padStart(2, '0')}-${String(runDate.getDate()).padStart(2, '0')}`
 
-    console.log(`Target: ${targetDateTime.toISOString()}, Window opens: ${bookingWindowOpens.toISOString()}, Now: ${now.toISOString()}, msUntilWindow: ${msUntilWindow}`)
+    // Get current date/time in EST
+    const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const nowDateStr = `${nowEST.getFullYear()}-${String(nowEST.getMonth() + 1).padStart(2, '0')}-${String(nowEST.getDate()).padStart(2, '0')}`
+    const nowHour = nowEST.getHours()
+    const nowMinute = nowEST.getMinutes()
 
-    // If booking window is ALREADY OPEN (past), trigger now
+    console.log(`Target: ${targetDate} ${targetTime}, Run date: ${runDateStr}, Now (EST): ${nowDateStr} ${nowHour}:${nowMinute}`)
+
+    // Check if booking window is open:
+    // - If today is AFTER run date, window is open
+    // - If today IS run date AND current time >= target time, window is open
+    const windowIsOpen = (nowDateStr > runDateStr) ||
+                         (nowDateStr === runDateStr && (nowHour > hour || (nowHour === hour && nowMinute >= minute)))
+
+    console.log(`Window is open: ${windowIsOpen}`)
+
+    // If booking window is ALREADY OPEN, trigger now
     // Otherwise, create a scheduled issue for the cron to pick up at the right time
-    if (msUntilWindow <= 0) {
+    if (windowIsOpen) {
       // Booking window already open - trigger workflow now
       const response = await fetch(
         `https://api.github.com/repos/${githubRepo}/actions/workflows/book-court.yml/dispatches`,
@@ -71,10 +85,8 @@ export async function POST(request: NextRequest) {
         message: `Booking started for ${targetDate} at ${targetTime}`,
       })
     } else {
-      // More than 7 days away - create a scheduled issue
-      // Booking window opens exactly 7 days before at the SAME TIME
-      const runDate = new Date(target)
-      runDate.setDate(runDate.getDate() - 7)
+      // Window not open yet - create a scheduled issue
+      // Cron will trigger when booking window opens
 
       const response = await fetch(
         `https://api.github.com/repos/${githubRepo}/issues`,
@@ -87,7 +99,7 @@ export async function POST(request: NextRequest) {
           },
           body: JSON.stringify({
             title: `Scheduled: ${targetDate} at ${targetTime}`,
-            body: `Date: ${targetDate}\nTime: ${targetTime}\n\n---\nThis booking will run automatically on ${runDate.toLocaleDateString()} when the reservation window opens.`,
+            body: `Date: ${targetDate}\nTime: ${targetTime}\n\n---\nThis booking will run automatically on ${runDateStr} at ${targetTime} when the reservation window opens.`,
             labels: ['scheduled'],
           }),
         }
@@ -107,9 +119,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         scheduled: true,
-        runDate: runDate.toISOString(),
+        runDate: runDateStr,
         issueNumber: issue.number,
-        message: `Scheduled for ${targetDate} at ${targetTime}. Will book on ${runDate.toLocaleDateString()}.`,
+        message: `Scheduled for ${targetDate} at ${targetTime}. Will book on ${runDateStr} at ${targetTime}.`,
       })
     }
   } catch (error) {
