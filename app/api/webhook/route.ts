@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// This webhook is called by cron-job.org at the scheduled time
-export async function GET(request: NextRequest) {
+// Handle the webhook logic
+async function handleWebhook(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const targetDate = searchParams.get('date')
   const targetTime = searchParams.get('time')
@@ -96,4 +96,13 @@ export async function GET(request: NextRequest) {
     success: true,
     message: `Booking triggered for ${targetDate} at ${targetTime}`,
   })
+}
+
+// Support both GET and POST (cron-job.org might use either)
+export async function GET(request: NextRequest) {
+  return handleWebhook(request)
+}
+
+export async function POST(request: NextRequest) {
+  return handleWebhook(request)
 }
