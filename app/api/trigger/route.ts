@@ -94,10 +94,8 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Get the webhook URL (this Vercel deployment)
-      const webhookUrl = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}/api/webhook`
-        : process.env.WEBHOOK_URL || 'https://tennis-plan.vercel.app/api/webhook'
+      // Use production URL for webhook (preview URLs require Vercel auth)
+      const webhookUrl = process.env.WEBHOOK_URL || 'https://tennis-plan.vercel.app/api/webhook'
 
       // Schedule the cron job for exactly when booking window opens (in UTC)
       // EST is UTC-5, so add 5 hours to convert EST to UTC
